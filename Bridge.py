@@ -12,7 +12,6 @@ import AutoFlowBridgeCompat
 import LandscapeComponents
 from LandscapeComponents import Road
 from AutoFlow import recalculateRoutes
-from AutoFlowBridgeCompat import MAX_ROAD_SPEED_MPS
 
 PORT = 8001
 
@@ -208,16 +207,20 @@ class JSONUtils:
 
 async def handler(websocket: WebSocketServerProtocol):
     # User input
-    print("Session opened")
-    autoflow_percentage = float(input("Enter the percentage of vehicles that are AutoFlow-enabled (0-100): "))
-    update_interval = int(input("Enter the period of updates for route recalculation (1 recalculation every n seconds): "))
+    message = await websocket.recv()
+    message = eval(message)
+    vehicleDensity = int(message["vehicleDensity"])
+    autoflow_percentage = int(message["autoFlowPercent"])
+    mapSize = int(message["mapSize"])
+    landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT, allVehicles = AutoFlowBridgeCompat.generateLandscape(mapSize, vehicleDensity)
+    update_interval = 4
 
     inp: tuple[
         dict[int, tuple[float, float, Vehicle]],
         Landscape,
         dict[int, list[tuple[float, float, float]]],
         list[Vehicle],
-    ] = outputToBridge(autoflowPercentage=autoflow_percentage)
+    ] = outputToBridge(autoflow_percentage, allVehicles, landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT)
 
     autoflow_vehicles = []
     selfish_vehicles = []
