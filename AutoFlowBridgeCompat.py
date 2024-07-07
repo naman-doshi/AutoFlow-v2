@@ -219,7 +219,8 @@ def generateLandscape(size, density):
 
             placedBuses.append(buses[i])
 
-            road.available_starting_positions.remove(position)
+            if position in road.available_starting_positions:
+                road.available_starting_positions.remove(position)
 
             if position + increment in road.available_starting_positions:
                 road.available_starting_positions.remove(position + increment)
@@ -376,3 +377,18 @@ def outputToBridge(autoflowPercentage : float, allVehicles, landscape, MAX_ROAD_
         # print(routes2)
 
         return (initPos, landscape, routes2, vehicles)
+
+def populateRoadNeighbors(landscape: Landscape):
+    """
+    Populates the neighbors of each road in the landscape.
+    """
+    for road in landscape.roads:
+        road_end_intersection: Intersection = landscape.intersections[road.end]
+        road_start_intersection: Intersection = landscape.intersections[road.start]
+        neighbors = []
+        for neighbour_intersection in road_end_intersection.neighbours:
+                if neighbour_intersection == road_start_intersection:
+                    continue
+                neighbour_road = landscape.roadmap[road_end_intersection.coordinates()][neighbour_intersection.coordinates()]
+                neighbors.append(neighbour_road.roadID)
+        road.neighbors = neighbors

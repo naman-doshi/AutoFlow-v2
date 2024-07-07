@@ -248,6 +248,7 @@ class Road:
     offset = 0.1  # offsets vehicles towards the middle line of a road tile, ranges from 0 to 0.25
     available_starting_positions = []
     available_ending_positions = []
+    neighbors = []
 
     def __init__(self, start: tuple[int, int], end: tuple[int, int]) -> None:
         self.roadID: int = (

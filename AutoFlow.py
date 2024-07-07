@@ -60,7 +60,7 @@ def computeRoutes(selfish_vehicles: list[Vehicle], autoflow_vehicles: list[Vehic
     Compute the routes for selfish vehicles first, then AutoFlow vehicles.
     """
     routes = {}
-    selfish_vehicle_routes = computeSelfishVehicleRoutes(selfish_vehicles, landscape, MAX_ROAD_SPEED_MPS)
+    selfish_vehicle_routes = computeSelfishVehicleRoutes(selfish_vehicles, landscape, MAX_ROAD_SPEED_MPS, carPositions=carPositions)
     autoflow_vehicle_routes = computeAutoflowVehicleRoutes(autoflow_vehicles, landscape, MAX_ROAD_SPEED_MPS, carPositions=carPositions)
 
     for i in range(len(autoflow_vehicle_routes)):
@@ -71,7 +71,7 @@ def computeRoutes(selfish_vehicles: list[Vehicle], autoflow_vehicles: list[Vehic
 
     return routes
 
-def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Landscape, MAX_ROAD_SPEED_MPS: float) -> list[list[tuple[float, float]]]:
+def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Landscape, MAX_ROAD_SPEED_MPS: float, carPositions={}) -> list[list[tuple[float, float]]]:
     """
     Selfish routing algorithm of Google Maps.
     Vehicles are not knowledgeable of future traffic and therefore only aware of congestion AFTER they occur.
@@ -86,7 +86,7 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
     The Closed list contains all visited nodes (including end points of a road as well as the starting position).
     """
 
-    routes: list[list[tuple[tuple[float, float], int]]] = []
+    routes: dict[int, list[tuple[tuple[float, float], int]]] = {}
 
     for vehicle in selfish_vehicles:
 
@@ -120,10 +120,19 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
         tiebreaker += 1
         heappush(open_nodes, start_node) 
 
+        broken = False
+
         while True: # loop until target point has been reached
 
             if len(open_nodes) == 0:
-                raise Exception("Path does not exist")
+                if carPositions == {}:
+                    raise Exception("Path does not exist")
+                else:
+                    broken = True
+                    route = carPositions[vehicle.id]["Routes"]
+                    route = [((round(x[0]), round(x[1])), x[2]) for x in route]
+                    routes[vehicle.id] = route
+                    break
 
             # Explore the node with the lowest fcost (hcost is tiebreaker)
             fcost, hcost, gcost, tb, road, position = heappop(open_nodes)
@@ -208,6 +217,8 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
                     previous_node[(neighbour_road.roadID, 0)] = (road.roadID, 1)
                     heappush(open_nodes, neighbour_node) # it does not matter whether neighbour is already in open list
 
+        if broken:
+            continue
         # Initiate a list that stores the sequence of (next real position, road ID) for the vehicle
         route: list[tuple[tuple[float, float], int]] = [] 
 
@@ -236,9 +247,11 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
         # print(route)
 
         # Store computed route in routes list            
-        routes.append(route)
-            
-    return routes
+        routes[vehicle.id] = route
+    
+    routes = dict(sorted(routes.items()))
+    newRoutes = [routes[k] for k in routes.keys()]
+    return newRoutes
 
 def sortVehicles(autoflow_vehicles: list[Vehicle]):
     """
@@ -594,9 +607,11 @@ def recalculateRoutes(carPositions, landscape : Landscape, vehicles : list[Vehic
                 buffers[id].append(route[i])
             
             vehicle.setLocation(landscape.lookupRoad[roadID], landscape.lookupRoad[roadID].get_position(x, y))
+    
+    selfish = [vehicles[i] for i in vehicles.keys() if vehicles[i].routingSystem == "Selfish"]
+    autoflow = [vehicles[i] for i in vehicles.keys() if vehicles[i].routingSystem == "Autoflow"]
 
-    vehicles = [vehicles[i] for i in vehicles.keys()]
-    newRoutes = computeRoutes([], vehicles, landscape, MAX_ROAD_SPEED_MPS, carPositions=carPositions)
+    newRoutes = computeRoutes(selfish, autoflow, landscape, MAX_ROAD_SPEED_MPS, carPositions=carPositions)
 
     # replace special case routes, otherwise put routes in the right format
     finalRoutes = {}
@@ -623,7 +638,3 @@ def recalculateRoutes(carPositions, landscape : Landscape, vehicles : list[Vehic
     
 
     return finalRoutes
-                                     
-    
-
-    

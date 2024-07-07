@@ -84,6 +84,7 @@ class RoadInitMessage:
     speedLimit: float
     startPos: Vector2Message
     endPos: Vector2Message
+    neighbors: list[int]
 
     def __dict__(self):
         return {
@@ -91,6 +92,7 @@ class RoadInitMessage:
             "speedLimit": self.speedLimit,
             "startPos": self.startPos.__dict__(),
             "endPos": self.endPos.__dict__(),
+            "neighbors": self.neighbors,
         }
 
     def serialize(self):
@@ -213,7 +215,7 @@ async def handler(websocket: WebSocketServerProtocol):
     autoflow_percentage = int(message["autoFlowPercent"])
     mapSize = int(message["mapSize"])
     landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT, allVehicles = AutoFlowBridgeCompat.generateLandscape(mapSize, vehicleDensity)
-    update_interval = 4
+    update_interval = 1
 
     inp: tuple[
         dict[int, tuple[float, float, Vehicle]],
@@ -266,6 +268,8 @@ async def handler(websocket: WebSocketServerProtocol):
         flatLandscapeMatrix.extend(row)
 
     roadMessages = []
+    AutoFlowBridgeCompat.populateRoadNeighbors(inp[1])
+    print('Populated road neighbors.')
     for road in inp[1].roads:
         roadMessages.append(
             RoadInitMessage(
@@ -273,6 +277,7 @@ async def handler(websocket: WebSocketServerProtocol):
                 road.speedLimit_MPS,
                 Vector2Message(road.startPosReal[0], road.startPosReal[1]),
                 Vector2Message(road.endPosReal[0], road.endPosReal[1]),
+                road.neighbors,
             )
         )
 
@@ -312,7 +317,7 @@ async def handler(websocket: WebSocketServerProtocol):
             carPositions = eval(message)
             updateMessages = []
 
-            newRoutes = recalculateRoutes(carPositions, inp[1], autoflow_vehicles, MAX_ROAD_SPEED_MPS, update_interval)
+            newRoutes = recalculateRoutes(carPositions, inp[1], autoflow_vehicles + selfish_vehicles, MAX_ROAD_SPEED_MPS, update_interval)
 
             for k in newRoutes.keys():
                 currentCar = VehicleUpdateMessage(k, [Vector3Message(*r) for r in newRoutes[k]])
