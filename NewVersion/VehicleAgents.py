@@ -9,7 +9,7 @@ Vehicles are either conventional (run on fossil fuel) or electric (EVs) and cont
 
 
 # ================ IMPORTS ================
-from LandscapeComponents import Road
+from LandscapeComponents import *
 
 from abc import *
 from random import randint
@@ -36,28 +36,45 @@ class Vehicle(ABC):
     def setRoutingSystem(self, systemID: int):
         self.routingSystem = Vehicle.routingSystems[systemID]
 
-    def setLocation(self, road: Road, position: float):
+    # [direction, lane, position]
+    def setLocation(self, virtualIntersection : VirtualIntersection):
+        self.starting = virtualIntersection
+        road = virtualIntersection.road
         self.road = road  # the road the vehicle is currently on
-        self.position = (
-            position  # float between 0 and 1 indicating linear position along a road
-        )
-        road.vehicleStack.append(self)
+        self.direction = virtualIntersection.direction  # the direction the vehicle is currently facing
+        self.lane = virtualIntersection.lane  # the lane the vehicle is currently on
+        self.position = virtualIntersection.position
 
-        realPositionX = float(road.endPosReal[0] - road.startPosReal[0]) * position + road.startPosReal[0]
-        realPositionY = float(road.endPosReal[1] - road.startPosReal[1]) * position + road.startPosReal[1]
-        self.startRealPosition = (realPositionX, realPositionY)
+        if self.direction == 1:
+            x = road.int1.x + (road.int2.x - road.int1.x) * self.position
+            y = road.int1.y + (road.int2.y - road.int1.y) * self.position
+        else:
+            x = road.int2.x + (road.int1.x - road.int2.x) * self.position
+            y = road.int2.y + (road.int1.y - road.int2.y) * self.position
 
-    def setDestination(self, road: Road, position: float):
+        self.startRealPosition = (x, y)
+
+    def setDestination(self, virtualIntersection : VirtualIntersection):
+        self.ending = virtualIntersection
+        road = virtualIntersection.road
         self.destinationRoad = road
-        self.destinationPosition = position
-        realPositionX = (road.endPosReal[0] - road.startPosReal[0]) * position + road.startPosReal[0]
-        realPositionY = (road.endPosReal[1] - road.startPosReal[1]) * position + road.startPosReal[1]
-        self.destinationRealPosition = (realPositionX, realPositionY)
+        self.destinationDirection = virtualIntersection.direction
+        self.destinationLane = virtualIntersection.lane
+        self.destinationPosition = virtualIntersection.position
+
+        if self.destinationDirection == 1:
+            x = road.int1.x + (road.int2.x - road.int1.x) * self.destinationPosition
+            y = road.int1.y + (road.int2.y - road.int1.y) * self.destinationPosition
+        else:
+            x = road.int2.x + (road.int1.x - road.int2.x) * self.destinationPosition
+            y = road.int2.y + (road.int1.y - road.int2.y) * self.destinationPosition
+        
+        self.desinationRealPosition = (x, y)
 
     def __deepcopy__(self, memo):
         agentCopy: Vehicle = self.__class__(self.id)
-        agentCopy.setLocation(self.road, self.position)
-        agentCopy.setDestination(self.destinationRoad, self.destinationPosition)
+        agentCopy.setLocation(self.road, (self.direction, self.lane, self.position))
+        agentCopy.setDestination(self.destinationRoad, (self.destinationDirection, self.destinationLane, self.destinationPosition))
         agentCopy.routingSystem = self.routingSystem
         return agentCopy
 

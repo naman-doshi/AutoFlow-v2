@@ -251,6 +251,8 @@ class Road:
     neighbors = []
 
     def __init__(self, start: tuple[int, int], end: tuple[int, int]) -> None:
+        self.open = True
+        
         self.roadID: int = (
             None  # index within ACTIVELANDSCAPE.roads, assigned by ACTIVELANDSCAPE
         )
@@ -458,6 +460,9 @@ class Landscape:
         # Set newly created landscape to global reference
         global ACTIVE_LANDSCAPE
         ACTIVE_LANDSCAPE = self
+
+        self.availableStarts = []
+        self.availableEnds = []
 
     # def get_neighbors(self, node):
     #     """

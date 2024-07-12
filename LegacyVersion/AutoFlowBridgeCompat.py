@@ -57,7 +57,7 @@ def getBusPositions(road: Road, start: bool):
     return [(road, i) for i in positions]
 
 # ================ INPUTS =================
-def generateLandscape(size, density):
+def generateLandscape(size, density, receiveNewDests) -> tuple[Landscape, float, int, list[Vehicle]]:
     LANDSCAPE_SIZE = (int(size/2), int(size/2))
     LANDSCAPE_FEATURES = [
         #(COMMERCIAL_BLOCK, 15),
@@ -88,20 +88,6 @@ def generateLandscape(size, density):
 
     # There must be at least one road within the map area
     assert len(landscape.intersections) > 4
-
-    # # Check for overlapping roads
-    # for roadA in landscape.roads:
-    #     for roadB in landscape.roads:
-    #         if roadA != roadB:
-    #             if doIntersect(
-    #                 Point(*roadA.startPosReal),
-    #                 Point(*roadA.endPosReal),
-    #                 Point(*roadB.startPosReal),
-    #                 Point(*roadB.endPosReal)
-    #             ):
-    #                 print(roadA.startPosReal, roadA.endPosReal)
-    #                 print(roadB.startPosReal, roadB.endPosReal)
-    #                 raise Exception("Roads overlap, this should not occur")
 
     # Compute average road speed for all roads within map area
     road_speeds = 0
@@ -135,9 +121,12 @@ def generateLandscape(size, density):
             if (CELL_SIZE_METRES <= realpos[0] <= CELL_SIZE_METRES * (landscape.xSize+1)) and (CELL_SIZE_METRES <= realpos[1] <= CELL_SIZE_METRES * (landscape.ySize+1)):
                 available_starting_coordinates.append((road, pos))
                 available_destination_coordinates.append((road, pos))
+                landscape.availableStarts.append((road, pos))
+                landscape.availableEnds.append((road, pos))
                 road.available_starting_positions.append(pos)
                 road.available_ending_positions.append(pos)
-# Generate a valid vehicle count
+    
+    # Generate a valid vehicle count
     MAX_VEHICLE_COUNT = min(len(available_starting_coordinates), len(available_destination_coordinates))
     print()
     print("Number of starting and ending coordinates:", len(available_starting_coordinates))
@@ -165,24 +154,12 @@ def generateLandscape(size, density):
 
     # Spawn EVs
     while current_index < EV_COUNT:
-        # if current_index in marked_indexes:
-        #     vehicle = ElectricVehicle(useAutoFlow=True)
-        #     autoflow_vehicles.append(vehicle)
-        # else:
-        #     vehicle = ElectricVehicle(useAutoFlow=False)
-        #     selfish_vehicles.append(vehicle)
         vehicle = ElectricVehicle(current_index)
         vehicles.append(vehicle)
         current_index += 1
 
     # Spawn conventional vehicles
     while current_index < VEHICLE_COUNT:
-        # if current_index in marked_indexes:
-        #     vehicle = ConventionalVehicle(useAutoFlow=True)
-        #     autoflow_vehicles.append(vehicle)
-        # else:
-        #     vehicle = ConventionalVehicle(useAutoFlow=False)
-        #     selfish_vehicles.append(vehicle)
         vehicle = ConventionalVehicle(current_index)
         vehicles.append(vehicle)
         current_index += 1
@@ -244,14 +221,6 @@ def generateLandscape(size, density):
             sorted(road.vehicleStack, key=lambda vehicle: vehicle.position, reverse=True)
         )
 
-    # # Check that no vehicle spawns in overlapping positions
-    # seen = set()
-    # for vehicle in vehicles:
-    #     start = (vehicle.road.start, vehicle.road.end, vehicle.position)
-    #     if start in seen:
-    #         raise Exception("Overlapping vehicle positions")
-    #     seen.add(start)
-
     print("Number of total vehicles:", len(vehicles))
     print()
 
@@ -263,47 +232,17 @@ def generateLandscape(size, density):
         road, position = available_destination_coordinates[coordIndex]  # unpack location into road and position
         vehicle.setDestination(road, position)  # Set vehicle's destination location
         available_destination_coordinates.pop(coordIndex)  # Remove assigned position from pool
-        road.available_ending_positions.remove(position)
+    
+    # Assign second destination coordinates if receiving new dests
+    if receiveNewDests == 1:
+        for vehicle in vehicles:
+            coordIndex = randint(0, len(available_destination_coordinates) - 1)
+            road, position = available_destination_coordinates[coordIndex]
+            vehicle.setSecondDestination(road, position)
+            available_destination_coordinates.pop(coordIndex)
 
     landscape.precomputeUnityCache()
     allVehicles = vehicles
-
-# # Checking for existence of double intersections
-# di_exists = False
-# for y in range(1, landscape.ySize + 1):
-#     for x in range(1, landscape.xSize + 1):
-#         if (
-#             landscape.landscapeMatrix[y][x]
-#             == landscape.landscapeMatrix[y + 1][x]
-#             == "IS"
-    #         ):
-    #             di_exists = True
-    #             break
-    #         elif (
-    #             landscape.landscapeMatrix[y][x]
-    #             == landscape.landscapeMatrix[y - 1][x]
-    #             == "IS"
-    #         ):
-    #             di_exists = True
-    #             break
-    #         elif (
-    #             landscape.landscapeMatrix[y][x]
-    #             == landscape.landscapeMatrix[y][x + 1]
-    #             == "IS"
-    #         ):
-    #             di_exists = True
-    #             break
-    #         elif (
-    #             landscape.landscapeMatrix[y][x]
-    #             == landscape.landscapeMatrix[y][x - 1]
-    #             == "IS"
-    #         ):
-    #             di_exists = True
-    #             break
-    #     if di_exists:
-    #         break
-    # if di_exists:
-    #     print("Double intersection detected")
 
     # ===============================================================================================
     # AutoFlow Distribution Functions
@@ -336,7 +275,7 @@ def modify_population(
 
 
 
-def outputToBridge(autoflowPercentage : float, allVehicles, landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT) -> tuple[
+def outputToBridge(autoflowPercentage : float, allVehicles, receiveNewDests, landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT) -> tuple[
     dict[int, tuple[float, float, Vehicle]],
     Landscape,
     dict[int, list[tuple[float, float, float]]],
@@ -355,10 +294,10 @@ def outputToBridge(autoflowPercentage : float, allVehicles, landscape, MAX_ROAD_
                 selfish_vehicles.append(vehicle)
 
         print(len(autoflow_vehicles), "AutoFlow vehicles")
-        print(len(selfish_vehicles), "selfish vehicles")
+        print(len(selfish_vehicles), "Selfish vehicles")
 
         routes = computeRoutes(
-            selfish_vehicles, autoflow_vehicles, landscape, MAX_ROAD_SPEED_MPS
+            selfish_vehicles, autoflow_vehicles, landscape, MAX_ROAD_SPEED_MPS, receiveNewDests
         )
 
         routes = deepcopy(routes)

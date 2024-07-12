@@ -1,1 +1,6 @@
-websockets
+dill==0.3.8
+matplotlib==3.8.4
+numpy==1.24.3
+scipy==1.14.0
+Shapely==2.0.4
+websockets==12.0

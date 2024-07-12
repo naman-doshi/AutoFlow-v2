@@ -214,15 +214,22 @@ async def handler(websocket: WebSocketServerProtocol):
     vehicleDensity = int(message["vehicleDensity"])
     autoflow_percentage = int(message["autoFlowPercent"])
     mapSize = int(message["mapSize"])
-    landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT, allVehicles = AutoFlowBridgeCompat.generateLandscape(mapSize, vehicleDensity)
+    receiveNewDests = message["receiveNewDests"]
+    roadBlockage = message["roadBlockage"]
+    landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT, allVehicles = AutoFlowBridgeCompat.generateLandscape(
+        mapSize, 
+        vehicleDensity,
+        receiveNewDests)
+
+    
     update_interval = 1
 
     inp: tuple[
         dict[int, tuple[float, float, Vehicle]],
         Landscape,
         dict[int, list[tuple[float, float, float]]],
-        list[Vehicle],
-    ] = outputToBridge(autoflow_percentage, allVehicles, landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT)
+        list[Vehicle]
+    ] = outputToBridge(autoflow_percentage, allVehicles, receiveNewDests, landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT)
 
     autoflow_vehicles = []
     selfish_vehicles = []
@@ -317,7 +324,7 @@ async def handler(websocket: WebSocketServerProtocol):
             carPositions = eval(message)
             updateMessages = []
 
-            newRoutes = recalculateRoutes(carPositions, inp[1], autoflow_vehicles + selfish_vehicles, MAX_ROAD_SPEED_MPS, update_interval)
+            newRoutes = recalculateRoutes(carPositions, inp[1], autoflow_vehicles + selfish_vehicles, MAX_ROAD_SPEED_MPS, update_interval, receiveNewDests, roadBlockage)
 
             for k in newRoutes.keys():
                 currentCar = VehicleUpdateMessage(k, [Vector3Message(*r) for r in newRoutes[k]])
