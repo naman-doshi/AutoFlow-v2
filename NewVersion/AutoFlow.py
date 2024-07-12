@@ -49,6 +49,7 @@ class Node:
         self.g = 0  # Cost from start to this node
         self.h = 0  # Heuristic cost from this node to end
         self.f = 0  # Total cost (g + h)
+        self.closed = False
 
     def __eq__(self, other):
         return self.position == other.position
@@ -113,7 +114,6 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
         
         # A*
         openNodes = []
-        closedNodes = set()
         start = Node(startNode)
         end = Node(endNode)
         openDict = {}
@@ -131,7 +131,7 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
             except:
                 pass
             
-            closedNodes.add(currentNode.position)
+            currentNode.closed = True
 
             # rebuild the path
             if currentNode == end:
@@ -144,7 +144,7 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
                 
             for neighbour in currentNode.position.connectingInts:
                 
-                if neighbour in closedNodes:
+                if neighbour.closed:
                     continue
                 
                 # very simple algorithm that solely calculates the time taken to reach the destination
@@ -233,7 +233,6 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
         
         # A*
         openNodes = []
-        closedNodes = set()
         start = Node(startNode)
         end = Node(endNode)
         openDict = {}
@@ -249,7 +248,7 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
             except:
                 pass
             
-            closedNodes.add(currentNode.position)
+            currentNode.closed = True
 
             if currentNode == end:
                 path = []
@@ -275,7 +274,7 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
                 
             for neighbour in currentNode.position.connectingInts:
                 
-                if neighbour in closedNodes:
+                if neighbour.closed:
                     continue
                     
                 neighNode = Node(neighbour, currentNode)
