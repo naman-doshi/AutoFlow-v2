@@ -509,6 +509,20 @@ class Landscape:
         
         # the graph is represented as a dictionary of dictionaries, where the keys are intersections
         self.GRAPH : dict[Intersection, dict[Intersection, Road]] = defaultdict(dict)
+
+    def reset(self):
+        '''
+        Resets the landscape to its initial state.
+        '''
+        self.intersections = {}
+        self.roads = []
+        self.virtualIntersections = []
+        self.lookupTable = {}
+        self.GRAPH = defaultdict(dict)
+        global allRoads
+        global allIntersections
+        allRoads = 0
+        allIntersections = 0
     
     def resize(self):
         '''
@@ -972,9 +986,8 @@ class Landscape:
                 if toDelete:
                     virtual.delete(self)
     
-            
     
-    def generate(self):
+    def gen(self):
         '''
         Generates the entire landscape.
         '''
@@ -991,6 +1004,24 @@ class Landscape:
             road.populatePositions(self)
         for id, intersection in self.intersections.items():
             self.connectMultiIntersection(intersection)
+
+    def generate(self):
+        '''
+        Keeps trying to generate until it's successful.
+
+        This is in case the Delaunay triangulation fails to connect all isolated intersections (a rare occurrence).
+        '''
+
+        success = False
+        while not success:
+            try:
+                self.gen()
+                success = True
+            except:
+                print("Failed to generate, trying again...")
+                self.reset()
+                continue
+        
     
     def show(self):
         '''
@@ -1047,17 +1078,7 @@ class Landscape:
         with open(path, 'r') as f:
             
             # reset all class variables
-            self.intersections = {}
-            self.roads = []
-            self.virtualIntersections = []
-            self.lookupTable = {}
-            self.GRAPH = defaultdict(dict)
-            self.area = 0
-            self.polygons = []
-            self.isolatedIntersections = []
-            self.isolatedCoords = []
-            self.virtualIntersections = []
-
+            self.reset()
             
             lines = f.readlines()
             
