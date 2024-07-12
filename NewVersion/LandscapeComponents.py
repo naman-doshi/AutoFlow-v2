@@ -360,10 +360,8 @@ def getRealPositionOnRoad(road: Road, position: float, direction : int) -> tuple
     """
     int1 = road.int1.coordinates()
     int2 = road.int2.coordinates()
-    
     if direction == -1:
         int1, int2 = int2, int1
-    
     x = int1[0] + (int2[0] - int1[0]) * position
     y = int1[1] + (int2[1] - int1[1]) * position
     return (x, y)
