@@ -6,8 +6,8 @@ from scipy.spatial import KDTree, Delaunay
 import matplotlib.pyplot as plt
 import shapely
 import numpy as np
-import dill
 import sys
+from DataStructures import *
 
 sys.setrecursionlimit(10**6)
 
@@ -26,47 +26,6 @@ def cis(x):
 
 def arg(comp):
     return math.atan2(comp.imag, comp.real)
-
-
-class DSU:
-    '''
-    Disjoint Set Union data structure for checking if two intersections are connected in the graph, in amortised O(1) time.
-    
-    Used for connecting all components of the procedurally generated road network to each other to make every node
-    traversable from every other node.
-    '''
-    def __init__(self, elements):
-        self.comp = [-1] * elements
-
-    def union(self, a, b):
-        a = self.repr(a)
-        b = self.repr(b)
-        if a == b:
-            return True
-        if -self.comp[a] < -self.comp[b]:
-            a, b = b, a
-        self.comp[a] += self.comp[b]
-        self.comp[b] = a
-        return False
-
-    def is_repr(self, x):
-        return self.comp[x] < 0
-
-    def size(self, x):
-        return -self.comp[self.repr(x)]
-
-    def num_comps(self):
-        return sum(1 for x in self.comp if x < 0)
-
-    def repr(self, x):
-        if self.comp[x] < 0:
-            return x
-        par = self.comp[x]
-        self.comp[x] = self.repr(par)
-        return self.comp[x]
-
-    def connected(self, a, b):
-        return self.repr(a) == self.repr(b)
 
 
 class Intersection:
@@ -242,6 +201,9 @@ class Road:
         else:
             self.laneCount = 3
             self.speedLimit = 28
+        
+        # angle
+        self.angle = math.atan2(self.int2.y - self.int1.y, self.int2.x - self.int1.x)
 
         # constants
         self.traversalTime = self.length / self.speedLimit
@@ -799,6 +761,10 @@ class Landscape:
     def pruneEdges(self):
         '''
         Prunes hyperconnected isolated intersections to simplify the graph.
+
+        Reduces the number of multi-lane roads to avoid physically overlapping roads.
+
+        Deletes one road from a pair, if the angle between them is too little
         '''
         for intersection in self.isolatedIntersections:
             edges = len(intersection.connectingRoads)
@@ -812,10 +778,33 @@ class Landscape:
             # removing the edges
             toDelete = []
             shuffle(intersection.connectingInts)
+            
             for i in range(toRemove):
                 toDelete.append(intersection.connectingInts[i].id)
+            
             for i in range(toRemove):
                 intersection.disconnect(self.intersections[toDelete[i]], self)
+
+            two_lane, three_lane = [], []
+            for road in intersection.connectingRoads:
+                if road.laneCount == 2:
+                    two_lane.append(road)
+                else:
+                    three_lane.append(road)
+            
+            for i in range(len(two_lane)-1):
+                two_lane[i].laneCount = 1
+            
+            for i in range(len(three_lane)-1):
+                three_lane[i].laneCount = 1
+
+            multi_lane = two_lane + three_lane
+            for r1 in range(len(multi_lane)):
+                for r2 in range(r1+1, len(multi_lane)):
+                    if abs(multi_lane[r1].angle - multi_lane[r2].angle) < 0.1:
+                        multi_lane[r1].laneCount = 1
+                        multi_lane[r2].laneCount = 1
+                        break
     
     def makeConnected(self):
         '''
