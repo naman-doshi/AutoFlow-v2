@@ -80,14 +80,17 @@ class Intersection:
     Each intersection also contains a connectingInts list that points to all its adjacent neighbours (up to four).
     """
 
-    def __init__(self, x: float, y: float) -> None:
+    def __init__(self, x: float, y: float, id = -1) -> None:
         self.x = x
         self.y = y
 
         # Setting the ID of the intersection
         global allIntersections
-        self.id = allIntersections
-        allIntersections += 1
+        if id == -1:
+            self.id = allIntersections
+            allIntersections += 1
+        else:
+            self.id = id
 
         # Initialising adjacency lists
         self.connectingInts = []
@@ -96,7 +99,7 @@ class Intersection:
 
         # Traffic light information
         self.trafficLightPattern: list[int] = None
-        self.trafficLightDuration: int = -1  # how long each phase lasts, in seconds
+        self.trafficLightDuration: int = 0  # how long each phase lasts, in seconds
 
         # Lookup table for quickly accessing the when a particular road gets the green light
         self.trafficLightLookup: dict[Intersection, int] = {}
@@ -341,6 +344,7 @@ class Road:
             if virt.correspondingRealIntersection == None:
                 pos.append(virt)
         return pos
+    
     
     def __lt__(self, other):
         return self.id < other.id
@@ -627,6 +631,23 @@ class Landscape:
                 return True
         
         return False
+    
+    def roadIntersects(self, coords, road2 : Road):
+        '''
+        Determines if a prospective road intersects with a pre-existing road.
+
+        Parameters:
+        - coords (list): The coordinates of the prospective road.
+        - road2 (Road): The pre-existing road.
+
+        Returns:
+        - bool: True if the road intersects, False otherwise.
+        '''
+
+        road1 = shapely.geometry.LineString(coords)
+        road2 = shapely.geometry.LineString([(road2.int1.x, road2.int1.y), (road2.int2.x, road2.int2.y)])
+        return road1.intersects(road2)
+        
         
         
     # checks if the distance between any point in this region is <= 30m from any point in another region
@@ -816,6 +837,25 @@ class Landscape:
                 toDelete.append(intersection.connectingInts[i].id)
             for i in range(toRemove):
                 intersection.disconnect(self.intersections[toDelete[i]], self)
+
+    def pruneOverlappingRoads(self):
+        '''
+        Prunes overlapping roads in the landscape.
+        '''
+        newRoads = []
+        for road in self.roads:
+            for otherRoad in self.roads:
+                if road == otherRoad:
+                    continue
+                x1, y1 = road.int1.coordinates()
+                x2, y2 = road.int2.coordinates()
+                line1 = shapely.geometry.LineString([(x1, y1), (x2, y2)])
+                x1, y1 = otherRoad.int1.coordinates()
+                x2, y2 = otherRoad.int2.coordinates()
+                line2 = shapely.geometry.LineString([(x1, y1), (x2, y2)])
+                if line1.intersects(line2):
+                    self.roads.remove(road)
+                    self.roads.remove(otherRoad)
     
     def makeConnected(self):
         '''
@@ -851,7 +891,7 @@ class Landscape:
             for i in range(10):
                 # if they're already connected, skip
                 otherint = self.intersections[indToId[closestpoints[1][i]]]
-                if dsu.connected(id, otherint.id):
+                if dsu.connected(idToInd[id], idToInd[otherint.id]):
                     continue
 
                 # check line intersection with any existing road
@@ -866,7 +906,7 @@ class Landscape:
                 # if it doesn't intersect any road, create it
                 if not intersects and len(otherint.connectingInts) < 4 and len(intersection.connectingInts) < 4:
                     intersection.connect(otherint, self)
-                    dsu.union(id, otherint.id)
+                    dsu.union(idToInd[id], idToInd[otherint.id])
                     lines.append(line)
                     intConnections.append((id, otherint.id))
                     break
@@ -1023,7 +1063,7 @@ class Landscape:
                 continue
         
     
-    def show(self):
+    def show(self, scalingFactor=1):
         '''
         Visualises the landscape using matplotlib.
 
@@ -1031,11 +1071,10 @@ class Landscape:
         
         plt.show() must be separately called to display the plot.
         '''
-        plt.scatter([i.x for i in self.intersections.values()], [i.y for i in self.intersections.values()], c='black', s = 4)
+        plt.scatter([i.x*scalingFactor for i in self.intersections.values()], [i.y*scalingFactor for i in self.intersections.values()], c='black', s = 4)
         #plt.scatter([i.x for i in self.virtualIntersections], [i.y for i in self.virtualIntersections], c = 'g', s = 3)
-        for i, inter in self.intersections.items():
-            for road in inter.connectingRoads:
-                plt.plot([road.int1.x, road.int2.x], [road.int1.y, road.int2.y], 'black')
+        for road in self.roads:
+                plt.plot([road.int1.x*scalingFactor, road.int2.x*scalingFactor], [road.int1.y*scalingFactor, road.int2.y*scalingFactor], 'black')
     
     def storeImage(self, path):
         '''
@@ -1082,12 +1121,13 @@ class Landscape:
             
             lines = f.readlines()
             
-            self.xSize, self.ySize = map(int, lines[0].split())
+            self.xSize, self.ySize = map(float, lines[0].split())
             
             numIntersections = int(lines[1])
             for i in range(2, 2 + numIntersections):
                 id, x, y = map(float, lines[i].split())
-                self.intersections[id] = Intersection(x, y)
+                id = int(id)
+                self.intersections[id] = Intersection(x, y, id=id)
                 self.lookupTable[(x, y)] = self.intersections[id]
             
             numRoads = int(lines[2 + numIntersections])
@@ -1095,10 +1135,22 @@ class Landscape:
                 int1, int2 = map(int, lines[i].split())
                 int1 = self.intersections[int1]
                 int2 = self.intersections[int2]
-                int1.connect(int2, self)
+
+                # before creating the road, check if it intersects with any other road
+                coords = [(int1.x, int1.y), (int2.x, int2.y)]
+                intersects = False
+                for road in self.roads:
+                    if self.roadIntersects(coords, road):
+                        intersects = True
+                        break
+
+                if not intersects:
+                    int1.connect(int2, self)
+            
+            # make sure the graph is connected
+            self.makeConnected()
             
             for intersection in self.intersections.values():
-                assert len(intersection.connectingInts) <= 4
                 intersection.create_traffic_light(self)
             
             for road in self.roads:

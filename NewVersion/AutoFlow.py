@@ -7,6 +7,7 @@ from random import sample
 from heapq import *
 from math import ceil
 import random
+from SegmentTree import *
 #=========================================
 MAX_ROAD_SPEED_MPS = 28
 
@@ -208,15 +209,13 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
     autoflowVehicles = sortVehicles(autoflow_vehicles)
 
     # how many vehicles on each road at each time
-    # TODO: replace the dict[int, int] with a lazy segment tree for faster updates
-    reservationTable : dict[Road, dict[int, int]] = defaultdict(lambda: defaultdict(int))
+    # implemented using a lazy minimum segment tree for O(logn) range queries and updates
+    reservationTable : dict[Road, LPSTree] = defaultdict(lambda: LPSTree(20000, reducef=min))
 
     # populate the reservation table for each car's initial starting position until they reach the end of the road, as this is unavoidable
-    # TODO: do this using range updates instead
     for vehicle in autoflowVehicles:
         traversalTime = ceil(vehicle.road.traversalTime * (1 - vehicle.position))
-        for t in range(traversalTime):
-            reservationTable[vehicle.road][t] += 1
+        reservationTable[vehicle.road].add(0, traversalTime, 1)
         
     for vehicle in autoflowVehicles:
 
@@ -261,12 +260,10 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
                 finalPath = path[::-1]
 
                 # update the reservation table
-                # TODO: do this using range updates instead
                 for i in range(len(finalPath) - 1):
                     curtime = finalPath[i].g
                     nextTime = finalPath[i+1].g
-                    for t in range(curtime, nextTime):
-                        reservationTable[landscape.GRAPH[finalPath[i].position][finalPath[i+1].position]][t] += 1
+                    reservationTable[landscape.GRAPH[finalPath[i].position][finalPath[i+1].position]].add(curtime, nextTime+1, 1)
                 
                 finalPath = [node.position for node in finalPath]
                 finalPath.append(endNode)
@@ -282,18 +279,26 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
                 road = landscape.GRAPH[currentNode.position][neighbour]
 
                 # initialising the time to the next integer second, and retrieving the congestion on the road
-                currentTime = ceil(currentNode.g)
+                currentTime = max(ceil(currentNode.g), 0)
                 roadLeavingTime = currentTime
                 congestion = reservationTable[road][currentTime] / autoFlowPercentage
 
-                # wait until the road is free, as higher priority vehicles could also go on it in this time
-                # TODO: binary search on the first index such that the range min is < capacity (log2(x)^2 complexity)
-                while congestion >= road.capacity:
-                    roadLeavingTime += 1
-                    congestion = reservationTable[road][roadLeavingTime] / autoFlowPercentage
+                # binary search on the first index such that the range min is < capacity (log2(x)^2 complexity)
+                l = currentTime + 1
+                r = 9999
+                tree = reservationTable[road]
+                r += 1
+                while l < r:
+                    mid = l + (r - l) // 2
+                    if tree.get(currentTime, mid+1) < road.capacity * autoFlowPercentage:
+                        r = mid
+                    else:
+                        l = mid + 1
+                roadLeavingTime = r
+            
                 
                 # calculate traversal time until we reach the last car on the road
-                roadLeavingTime += (road.length - VEHICLE_LENGTH_METRES * congestion) / road.speedLimit
+                roadLeavingTime += max(0, (road.length - VEHICLE_LENGTH_METRES * congestion) / road.speedLimit)
 
                 # calculate time until all the traffic light cycles
                 cycleTime = neighbour.trafficLightDuration * neighbour.roadCount
