@@ -157,7 +157,8 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
                       gridSparseness=0.4,
                       gridCoverage=0.6)
     
-    landscape.load("NewVersion/sydney.txt")
+    #landscape.load("NewVersion/sydney.txt")
+    landscape.generate()
     allRoads = []
     
     
@@ -288,7 +289,7 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
             type = 1
         elif isinstance(vehicle, Bus):
             type = 2
-        dataclassVehicles.append(VehicleInitMsg(vehicle.id, type, vehicle.emissionRate, vehicle.routingSystem == "Autoflow", vehicle.passengerCount, vehicle.route[0], vehicle.route[1:]))
+        dataclassVehicles.append(VehicleInitMsg(vehicle.id, type, vehicle.emissionRate, vehicle.routingSystem == "Autoflow", vehicle.passengerCount, vehicle.route[0], vehicle.route))
 
     print("Dataclass vehicles: ", len(dataclassVehicles))
     allRoads = AllRoads(allRoads, dataclassVehicles)

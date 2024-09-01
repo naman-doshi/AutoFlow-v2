@@ -102,7 +102,7 @@ class Intersection:
         self.trafficLightDuration: int = 0  # how long each phase lasts, in seconds
 
         # Lookup table for quickly accessing the when a particular road gets the green light
-        self.trafficLightLookup: dict[Intersection, int] = {}
+        self.trafficLightLookup: dict[int, Intersection] = {}
 
         # How many vehicles can pass through the intersection in one phase
         self.trafficPassthroughRate = None
@@ -198,7 +198,9 @@ class Intersection:
 
             # Create lookup table based on green light order
             for i in range(self.roadCount):
-                self.trafficLightLookup[self.connectingInts[self.trafficLightPattern[i]]] = i
+                self.trafficLightLookup[i] = self.connectingInts[self.trafficLightPattern[i]]
+            
+            self.trafficLightPattern = [landscape.GRAPH[self][self.trafficLightLookup[i]].id for i in self.trafficLightPattern]
 
             # Randomise phase duration between 3-8 seconds
             self.trafficLightDuration = randint(3, 8)

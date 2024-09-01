@@ -9,13 +9,13 @@ landscape = Landscape(1000,
                       1000,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
-# landscape.generate()
+landscape.generate()
 
 # # OPTIONAL (saving to a file)
 # landscape.store("landscape.txt")
 
 # OPTIONAL (loading from a file)
-landscape.load("NewVersion/sydney.txt")
+# landscape.load("NewVersion/sydney.txt")
 
 # populate the possible starting positions
 allStartingPositions = []
@@ -25,8 +25,8 @@ for road in landscape.roads:
     allEndingPositions += road.availablePositions()
 
 # ========================================= VEHICLE GENERATION =========================================
-autoFlowVehicleCount = 100
-selfishVehicleCount = 0
+autoFlowVehicleCount = 1
+selfishVehicleCount = 1
 
 totalVehicleCount = autoFlowVehicleCount + selfishVehicleCount
 autoFlowVehicles = []
