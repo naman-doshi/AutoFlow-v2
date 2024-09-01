@@ -8,7 +8,7 @@ class LPSTree:
 	Build a new LPSTree with n elements.
 	If value is provided, all elements are set to value, otherwise 0.
 	Default reduce function is sum. Can alse be set to max or min.
-	If modulo is provide, modulo operation will be donw automatically.
+	If modulo is provided, modulo operation will be done automatically.
 	"""
 	def __init__(self, n, value=None, reducef=None, modulo=None):
 		if n <= 0:

@@ -10,8 +10,8 @@ This script contains the multiple route computing algorithms, including:
 
 
 #================ IMPORTS ================
-from LandscapeComponents import *
-from VehicleAgents import *
+from LegacyVersion.LandscapeComponents import *
+from LegacyVersion.VehicleAgents import *
 
 from random import sample
 from heapq import *

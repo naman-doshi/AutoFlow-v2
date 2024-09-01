@@ -1,13 +1,13 @@
 
 #================ IMPORTS ================
-from LandscapeComponents import *
-from VehicleAgents import *
+from NewVersion.LandscapeComponents import *
+from NewVersion.VehicleAgents import *
 
 from random import sample
 from heapq import *
 from math import ceil
 import random
-from SegmentTree import *
+from NewVersion.SegmentTree import *
 #=========================================
 MAX_ROAD_SPEED_MPS = 28
 
@@ -100,17 +100,8 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
 
     for vehicle in selfish_vehicles:
 
-        # determine the starting and ending nodes (ignoring the vehicle's actual starting and ending positions on the road)
-        # this is because the vehicle's actual starting and ending positions are not variable
-        if vehicle.direction == 1:
-            startNode = vehicle.road.int2
-        else:
-            startNode = vehicle.road.int1
-
-        if vehicle.destinationDirection == 1:
-            endNode = vehicle.destinationRoad.int1
-        else:
-            endNode = vehicle.destinationRoad.int2
+        startNode = vehicle.starting
+        endNode = vehicle.ending
         
         # A*
         openNodes = []
@@ -135,37 +126,46 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
             closedNodes.add(currentNode.position)
 
             # rebuild the path
-            if currentNode == end:
+            if end.position.road == currentNode.position.road:
                 path = []
                 while currentNode:
                     path.append(currentNode.position)
                     currentNode = currentNode.parent
                 finalPath = path[::-1]
+                finalPath.append(end.position)
                 break
                 
-            for neighbour in currentNode.position.connectingInts:
-                
-                if neighbour in closedNodes:
-                    continue
-                
-                # very simple algorithm that solely calculates the time taken to reach the destination
-                neighNode = Node(neighbour, currentNode)
-                road = landscape.GRAPH[currentNode.position][neighbour]
-                neighNode.g = currentNode.g + road.traversalTime
-                neighNode.h = heuristic(neighbour, endNode)
-                
-                # more weighting on the heuristic as it is somewhat accurate, and also significantly speeds up the process
-                neighNode.f = neighNode.g + neighNode.h * 2
+            for avi in currentNode.position.road.associatedVirtualIntersections:
 
-                if neighbour in openDict and neighNode.g > openDict[neighbour].g:
+                nodeNeeded = None
+                if currentNode.position.direction == 1:
+                    nodeNeeded = currentNode.position.road.int2
+                else:
+                    nodeNeeded = currentNode.position.road.int1
+                
+                if avi.correspondingRealIntersection != nodeNeeded or avi.direction != currentNode.position.direction:
                     continue
 
-                heappush(openNodes, neighNode)
-                openDict[neighbour] = neighNode
-        
-        # make sure the path is valid
-        for i in range(len(finalPath)-1):
-            assert finalPath[i+1] in finalPath[i].connectingInts
+                for neighbour in avi.connectingVirtualInts:
+                
+                    if neighbour in closedNodes or neighbour.road == currentNode.position.road:
+                        continue
+                    
+                    # very simple algorithm that solely calculates the time taken to reach the destination
+                    intermediary = Node(avi, currentNode)
+                    neighNode = Node(neighbour, intermediary)
+                    road = currentNode.position.road
+                    neighNode.g = currentNode.g + road.traversalTime
+                    neighNode.h = heuristic(neighbour, endNode)
+                    
+                    # more weighting on the heuristic as it is somewhat accurate, and also significantly speeds up the process
+                    neighNode.f = neighNode.g + neighNode.h * 2
+
+                    if neighbour in openDict and neighNode.g > openDict[neighbour].g:
+                        continue
+
+                    heappush(openNodes, neighNode)
+                    openDict[neighbour] = neighNode
         
         routes[vehicle.id] = finalPath
     
@@ -210,7 +210,7 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
 
     # how many vehicles on each road at each time
     # implemented using a lazy minimum segment tree for O(logn) range queries and updates
-    reservationTable : dict[Road, LPSTree] = defaultdict(lambda: LPSTree(20000, reducef=min))
+    reservationTable : dict[Road, LPSTree] = defaultdict(lambda: LPSTree(10000, value=0, reducef=min))
 
     # populate the reservation table for each car's initial starting position until they reach the end of the road, as this is unavoidable
     for vehicle in autoflowVehicles:
@@ -250,25 +250,81 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
             
             closedNodes.add(currentNode.position)
 
-            if currentNode == end:
-                path = []
-                while currentNode:
+            # if currentNode == end:
+            #     path = []
+            #     while currentNode:
 
-                    path.append(currentNode)
-                    currentNode = currentNode.parent
+            #         path.append(currentNode)
+            #         currentNode = currentNode.parent
                 
-                finalPath = path[::-1]
-
-                # update the reservation table
-                for i in range(len(finalPath) - 1):
-                    curtime = finalPath[i].g
-                    nextTime = finalPath[i+1].g
-                    reservationTable[landscape.GRAPH[finalPath[i].position][finalPath[i+1].position]].add(curtime, nextTime+1, 1)
+            #     finalPath = path[::-1]
+            #     finalPathCopy = finalPath
                 
-                finalPath = [node.position for node in finalPath]
-                finalPath.append(endNode)
+            #     finalPath = [node.position for node in finalPath]
+                
+            #     # convert everything to virtual ints
 
-                break
+            #     vIntPath = [vehicle.starting]
+            #     currentLane = vehicle.lane
+            #     currentDirection = vehicle.direction
+            #     currentRoad = vehicle.road
+
+            #     for i in range(len(finalPath)):
+            #         # find all possible ending virtual intersections i.e. end of road, same direction, any lane
+            #         possibleEnds : list[VirtualIntersection] = []
+
+            #         assert len(currentRoad.virtualInts) > 0
+                    
+            #         for vInt in currentRoad.virtualInts:
+            #             # print(vInt.direction, currentDirection, vInt.correspondingRealIntersection, finalPath[i])
+            #             if vInt.direction == currentDirection and vInt.correspondingRealIntersection == finalPath[i]:
+            #                 possibleEnds.append(vInt)
+            #                 #print(f"road has {currentRoad.laneCount} lanes, directions {vInt.direction} {currentDirection} lane {vInt.lane} {currentLane} road {vInt.road.id} {currentRoad.id} corres {vInt.correspondingRealIntersection.id} {finalPath[i].id}")
+                    
+            #         # from these possible endings, we choose the one that's lane is closest to the current lane, and is able to turn on to the next road
+            #         bestEnd = None
+            #         turningInt : VirtualIntersection = None
+            #         minDist = 5
+            #         for vInt in possibleEnds:
+            #             # there should only be one connectingInt that you can turn to
+            #             canTurn = False
+            #             tInt : VirtualIntersection = None
+
+            #             assert len(vInt.connectingVirtualInts) > 0
+
+            #             for connectingInt in vInt.connectingVirtualInts:
+            #                 if connectingInt.correspondingRealIntersection == finalPath[i]:
+            #                     canTurn = True
+            #                     tInt = connectingInt
+                        
+            #             if canTurn:
+            #                 dist = abs(vInt.lane - currentLane)
+            #                 if dist < minDist:
+            #                     bestEnd = vInt
+            #                     minDist = dist
+            #                     turningInt = tInt
+                    
+            #         # add both bestEnd and turningInt to the path
+            #         vIntPath.append(bestEnd)
+            #         vIntPath.append(turningInt)
+
+            #         # update currentLane, currentDirection, currentRoad
+            #         currentLane = turningInt.lane
+            #         currentDirection = turningInt.direction
+            #         currentRoad = turningInt.road
+                    
+            #         # add the final destination
+            #         vIntPath.append(vehicle.ending)
+
+            #         # update the reservation table ONLY IF there were no issues
+            #         for i in range(len(finalPathCopy) - 1):
+            #             curtime = finalPathCopy[i].g
+            #             nextTime = finalPathCopy[i+1].g
+            #             currentRoad = landscape.GRAPH[finalPathCopy[i].position][finalPathCopy[i+1].position]
+            #             reservationTable[currentRoad].add(curtime, nextTime+1, 1)
+
+            #         finalPath = vIntPath
+            #         break
                 
             for neighbour in currentNode.position.connectingInts:
                 
@@ -280,6 +336,8 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
 
                 # initialising the time to the next integer second, and retrieving the congestion on the road
                 currentTime = max(ceil(currentNode.g), 0)
+                #print(f"Current time: {currentTime}")
+                
                 roadLeavingTime = currentTime
                 congestion = reservationTable[road][currentTime] / autoFlowPercentage
 
@@ -290,19 +348,28 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
                 r += 1
                 while l < r:
                     mid = l + (r - l) // 2
-                    if tree.get(currentTime, mid+1) < road.capacity * autoFlowPercentage:
+                    query = tree.get(currentTime, mid+1)
+                    if query < road.capacity * autoFlowPercentage:
                         r = mid
                     else:
                         l = mid + 1
                 roadLeavingTime = r
+
+                if roadLeavingTime >= 10000:
+                    roadLeavingTime = currentTime + 1
+
+                #print(f"Road leaving time: {roadLeavingTime}")
             
                 
                 # calculate traversal time until we reach the last car on the road
                 roadLeavingTime += max(0, (road.length - VEHICLE_LENGTH_METRES * congestion) / road.speedLimit)
+                #print(f"Road leaving time after congestion: {roadLeavingTime}")
 
                 # calculate time until all the traffic light cycles
                 cycleTime = neighbour.trafficLightDuration * neighbour.roadCount
                 roadLeavingTime += cycleTime * congestion
+
+                #print(f"Road leaving time after traffic lights: {roadLeavingTime}")
 
                 neighNode.g = ceil(roadLeavingTime)
                 neighNode.h = heuristic(neighbour, endNode)

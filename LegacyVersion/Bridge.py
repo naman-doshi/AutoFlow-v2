@@ -4,14 +4,14 @@ from websockets.exceptions import ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol, serve
 import json
 
-from AutoFlowBridgeCompat import outputToBridge
-from LandscapeComponents import Landscape
-from VehicleAgents import Vehicle
+from LegacyVersion.AutoFlowBridgeCompat import outputToBridge
+from LegacyVersion.LandscapeComponents import Landscape
+from LegacyVersion.VehicleAgents import Vehicle
 import websockets
-import AutoFlowBridgeCompat
-import LandscapeComponents
-from LandscapeComponents import Road
-from AutoFlow import recalculateRoutes
+import LegacyVersion.AutoFlowBridgeCompat as AutoFlowBridgeCompat
+import LegacyVersion.LandscapeComponents as LandscapeComponents
+from LegacyVersion.LandscapeComponents import Road
+from LegacyVersion.AutoFlow import recalculateRoutes
 
 PORT = 8001
 
@@ -206,6 +206,133 @@ class JSONUtils:
             case _:
                 raise ValueError("Invalid type from JSON")
 
+async def handleLegacy(websocket, message):
+    vehicleDensity = int(message["vehicleDensity"])
+    autoflow_percentage = int(message["autoFlowPercent"])
+    mapSize = int(message["mapSize"])
+    receiveNewDests = message["receiveNewDests"]
+    roadBlockage = message["roadBlockage"]
+    landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT, allVehicles = AutoFlowBridgeCompat.generateLandscape(
+        mapSize, 
+        vehicleDensity,
+        receiveNewDests)
+
+    
+    update_interval = 1
+
+    inp: tuple[
+        dict[int, tuple[float, float, Vehicle]],
+        Landscape,
+        dict[int, list[tuple[float, float, float]]],
+        list[Vehicle]
+    ] = outputToBridge(autoflow_percentage, allVehicles, receiveNewDests, landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT)
+
+    autoflow_vehicles = []
+    selfish_vehicles = []
+    for vehicle in inp[3]:
+        if vehicle.routingSystem == "Autoflow":
+            autoflow_vehicles.append(vehicle)
+        else:
+            selfish_vehicles.append(vehicle)
+
+
+    # Initial scene
+    vehicleInits = []
+
+    # creating a dummy vehicle init for the update interval
+    vehicleInits.append(
+        VehicleInitMessage(
+            update_interval,
+            0,
+            (0, 0),
+            0,
+            0,
+            False,
+            0,
+        )
+    )
+
+
+    for id, posAndVeh in inp[0].items():
+        vehicleInits.append(
+            VehicleInitMessage(
+                id,
+                posAndVeh[2].road.roadID,
+                (posAndVeh[0], posAndVeh[1]),
+                0,
+                posAndVeh[2].emissionRate,
+                posAndVeh[2].routingSystem == "Autoflow",
+                posAndVeh[2].passengerCount,
+            )
+        )
+
+    flatLandscapeMatrix = []
+    for row in inp[1].landscapeMatrix:
+        flatLandscapeMatrix.extend(row)
+
+    roadMessages = []
+    AutoFlowBridgeCompat.populateRoadNeighbors(inp[1])
+    print('Populated road neighbors.')
+    for road in inp[1].roads:
+        roadMessages.append(
+            RoadInitMessage(
+                road.roadID,
+                road.speedLimit_MPS,
+                Vector2Message(road.startPosReal[0], road.startPosReal[1]),
+                Vector2Message(road.endPosReal[0], road.endPosReal[1]),
+                road.neighbors,
+            )
+        )
+
+    intersections = [
+        IntersectionMessage(Vector2Message(i[0][0], i[0][1]), i[1], i[2], i[3], i[4])
+        for i in inp[1].unityCache
+    ]
+
+    await websocket.send(
+        InitMessage(
+            flatLandscapeMatrix,
+            len(inp[1].landscapeMatrix[0]),
+            vehicleInits,
+            roadMessages,
+            intersections,
+        ).serialize()
+    )
+    print("Finished terrain")
+    await asyncio.sleep(0.5)
+
+    # Updates
+    updateMessages = []
+    for id, route in inp[2].items():
+        currentCar = VehicleUpdateMessage(id, [Vector3Message(*r) for r in route])
+        updateMessages.append(currentCar)
+    await websocket.send(UpdateMessage(updateMessages).serialize())
+
+    print("Finished routing")
+
+    await asyncio.sleep(9.5)
+
+    while True:
+        try:
+            message = await websocket.recv()
+            
+            # horrible security
+            carPositions = eval(message)
+            updateMessages = []
+
+            newRoutes = recalculateRoutes(carPositions, inp[1], autoflow_vehicles + selfish_vehicles, MAX_ROAD_SPEED_MPS, update_interval, receiveNewDests, roadBlockage)
+
+            for k in newRoutes.keys():
+                currentCar = VehicleUpdateMessage(k, [Vector3Message(*r) for r in newRoutes[k]])
+                updateMessages.append(currentCar)
+
+            await websocket.send(UpdateMessage(updateMessages).serialize())
+            
+        except websockets.exceptions.ConnectionClosedOK:
+            print("Connection closed, stopping reception.")
+            break
+
+        await asyncio.sleep(update_interval)
 
 async def handler(websocket: WebSocketServerProtocol):
     # User input
@@ -216,6 +343,7 @@ async def handler(websocket: WebSocketServerProtocol):
     mapSize = int(message["mapSize"])
     receiveNewDests = message["receiveNewDests"]
     roadBlockage = message["roadBlockage"]
+    
     landscape, MAX_ROAD_SPEED_MPS, TOTAL_VEHICLE_COUNT, allVehicles = AutoFlowBridgeCompat.generateLandscape(
         mapSize, 
         vehicleDensity,
@@ -345,7 +473,8 @@ async def main():
         await asyncio.Future()  # run forever
 
 
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    print("Interrupted")
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Interrupted")

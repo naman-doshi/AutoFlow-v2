@@ -1,5 +1,5 @@
-from LandscapeComponents import * 
-from AutoFlow import *
+from NewVersion.LandscapeComponents import * 
+from NewVersion.AutoFlow import *
 import random
 
 # ========================================= LANDSCAPE GENERATION =========================================
@@ -25,7 +25,7 @@ for road in landscape.roads:
     allEndingPositions += road.availablePositions()
 
 # ========================================= VEHICLE GENERATION =========================================
-autoFlowVehicleCount = 5
+autoFlowVehicleCount = 100
 selfishVehicleCount = 0
 
 totalVehicleCount = autoFlowVehicleCount + selfishVehicleCount
@@ -60,17 +60,17 @@ for i in range(totalVehicleCount):
     allEndingPositions.remove(endPos)
     vehicle.setDestination(endPos)
 
-# ========================================= ROUTE COMPUTATION =========================================
+# # ========================================= ROUTE COMPUTATION =========================================
 
 allRoutes = computeRoutes(selfishVehicles, autoFlowVehicles, landscape)
 
-# ========================================= DISPLAY (optional) =========================================
+# # ========================================= DISPLAY (optional) =========================================
 
 
 landscape.show()
 
 # OPTIONAL (storing visualisation)
-landscape.storeImage("landscape.png")
+#landscape.storeImage("landscape.png")
 
 
 coords = []

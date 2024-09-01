@@ -9,7 +9,7 @@ Vehicles are either conventional (run on fossil fuel) or electric (EVs) and cont
 
 
 # ================ IMPORTS ================
-from LandscapeComponents import Road
+from LegacyVersion.LandscapeComponents import Road
 
 from abc import *
 from random import randint

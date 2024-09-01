@@ -281,26 +281,29 @@ class Road:
                 
                 
                 # lane is a 2D list of virtual intersections, with a each row being a lane
-                lane = [VirtualIntersection(self, 0, direction, i, startingInt)]
+                vint = VirtualIntersection(self, 0, direction, i, correspondingRealIntersection=startingInt)
+                vint.connect(startingInt)
+
+                lane = [vint]
                 
                 # creating the first virtual intersection and associating it with the starting intersection
-                self.virtualInts.append(lane[0])
-                landscape.virtualIntersections.append(lane[0])
-                self.associatedVirtualIntersections.append(lane[0])
-                lane[0].connect(startingInt)
+                self.virtualInts.append(vint)
+                landscape.virtualIntersections.append(vint)
+                self.associatedVirtualIntersections.append(vint)
                 
                 # creating the rest of the virtual intersections at regular intervals
                 # since lane changes/spawns shouldn't occur too close to the endpoints of the road,
-                # the interval is at least 20m, or 10% of the road length, whichever is greater
+                # the interval is at least 10m, or 10% of the road length, whichever is greater
                 # - also avoids having too many virtual intersections bloating the landscape
+                # however we still want virtual intersections on small roads to allow for lane changes
                 j = 0.1
                 while j < 0.9:
 
                     # creating the virtual intersection and associating it with the road
                     virtInt = VirtualIntersection(self, j, direction, i)
+
                     self.virtualInts.append(virtInt)
                     landscape.virtualIntersections.append(virtInt)
-                    virtInt.connect(lane[-1])
                     
                     # setting backward and forward connections
                     virtInt.backward = lane[-1]
@@ -308,26 +311,21 @@ class Road:
                     
                     lane.append(virtInt)
                     
-                    j += max(20/self.length, 0.1)
+                    j += max(10/self.length, 0.1)
                 
                 # creating the last virtual intersection and associating it with the ending intersection
-                lane.append(VirtualIntersection(self, 1, direction, i, endingInt))
-                lane[-1].connect(lane[-2])
-                lane[-2].forward = lane[-1]
-                lane[-1].backward = lane[-2]
-                self.virtualInts.append(lane[-1])
-                landscape.virtualIntersections.append(lane[-1])
-                self.associatedVirtualIntersections.append(lane[-1])
-                lane[-1].connect(endingInt)
+                vint = VirtualIntersection(self, 1, direction, i, correspondingRealIntersection=endingInt)
+                lane.append(vint)
+                vint.connect(endingInt)
+                lane[-2].forward = vint
+                vint.backward = lane[-2]
+                self.virtualInts.append(vint)
+                landscape.virtualIntersections.append(vint)
+                self.associatedVirtualIntersections.append(vint)
+                
 
                 lanes.append(lane)
             
-            # connecting the virtual intersections sideways - enabling lane changes
-            for i in range(1, len(lanes)):
-                for j in range(1, len(lanes[0])-1):
-                    lanes[i][j].connect(lanes[i-1][j])
-                    lanes[i-1][j].right = lanes[i][j]
-                    lanes[i][j].left = lanes[i-1][j]
     
     def findAssociatedVirtualIntersection(self, intersection, lane, dir):
         # helper method to find an associated virtual intersection given a real intersection, lane and direction
@@ -1013,18 +1011,19 @@ class Landscape:
 
         # deleting virtual intersections that have no connections to any other road
         # this is needed for cars to know to switch lanes to turn
-        for i in roadLookup:
-            road : Road = i[2]
-            for virtual in road.associatedVirtualIntersections:
-                if virtual.correspondingRealIntersection != intersection:
-                    continue
-                toDelete = True
-                for connection in virtual.connectingVirtualInts:
-                    if connection.correspondingRealIntersection != None:
-                        toDelete = False
-                        break
-                if toDelete:
-                    virtual.delete(self)
+        # for i in roadLookup:
+        #     road : Road = i[2]
+        #     for virtual in road.associatedVirtualIntersections:
+        #         if virtual.correspondingRealIntersection != intersection:
+        #             continue
+        #         toDelete = True
+        #         for connection in virtual.connectingVirtualInts:
+        #             if connection.correspondingRealIntersection != None:
+        #                 toDelete = False
+        #                 break
+        #         if toDelete:
+        #             print("Deleting virtual intersection")
+        #             virtual.delete(self)
     
     
     def gen(self):
@@ -1136,16 +1135,16 @@ class Landscape:
                 int1 = self.intersections[int1]
                 int2 = self.intersections[int2]
 
-                # before creating the road, check if it intersects with any other road
-                coords = [(int1.x, int1.y), (int2.x, int2.y)]
-                intersects = False
-                for road in self.roads:
-                    if self.roadIntersects(coords, road):
-                        intersects = True
-                        break
+                # # before creating the road, check if it intersects with any other road
+                # coords = [(int1.x, int1.y), (int2.x, int2.y)]
+                # intersects = False
+                # for road in self.roads:
+                #     if self.roadIntersects(coords, road):
+                #         intersects = True
+                #         break
 
-                if not intersects:
-                    int1.connect(int2, self)
+                # if not intersects:
+                int1.connect(int2, self)
             
             # make sure the graph is connected
             self.makeConnected()

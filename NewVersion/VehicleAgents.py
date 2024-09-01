@@ -9,7 +9,7 @@ Vehicles are either conventional (run on fossil fuel) or electric (EVs) and cont
 
 
 # ================ IMPORTS ================
-from LandscapeComponents import *
+from NewVersion.LandscapeComponents import *
 
 from abc import *
 from random import randint
@@ -32,6 +32,7 @@ class Vehicle(ABC):
     def __init__(self) -> None:
         self.emissionRate = 0
         self.passengerCount = 1
+        self.route = []
 
     def setRoutingSystem(self, systemID: int):
         self.routingSystem = Vehicle.routingSystems[systemID]
@@ -98,6 +99,7 @@ class ConventionalVehicle(Vehicle):
         #self.passengerCount = 1
         self.setRoutingSystem(int(useAutoFlow))
         self.id = id
+        self.route = []
 
 
 class ElectricVehicle(Vehicle):
@@ -114,6 +116,7 @@ class ElectricVehicle(Vehicle):
         self.passengerCount = randint(1, Vehicle.MAX_PASSENGER_COUNT)
         #self.passengerCount = 1
         self.setRoutingSystem(int(useAutoFlow))
+        self.route = []
 
 class Bus(Vehicle):
     
@@ -133,3 +136,4 @@ class Bus(Vehicle):
             #self.emissionRate = 150
             self.passengerCount = randint(20, 70)
             self.setRoutingSystem(int(useAutoFlow))
+            self.route = []
