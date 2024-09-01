@@ -18,11 +18,10 @@ async def handler(websocket: WebSocketServerProtocol):
     mapSize = int(message["mapSize"])
     receiveNewDests = message["receiveNewDests"]
     roadBlockage = message["roadBlockage"]
-    cities = {0: 'sydney', 1: 'melbourne', 2: 'manhattan', 3: 'los_angeles', 4: 'london', 5: 'tokyo'}
-    print(cities)
-    if selectedIndex != -1:
-        city = cities[selectedIndex]
-        print(city)
+    graphics = int(message["graphics"])
+    # graphics being true means you want 3D
+    cities = ["sydney", "melbourne", "manhattan", "los_angeles", "london", "tokyo"]
+    if graphics == 0:
         await handleNew(websocket, selectedIndex, vehicleDensity, autoflow_percentage, mapSize, receiveNewDests, roadBlockage)
     else:
         print("No city selected")

@@ -135,8 +135,6 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
                 finalPath.append(end)
                 betterPath = []
                 for i in range(len(finalPath) - 1):
-                    if finalPath[i].g > finalPath[i+1].g + 0.2:
-                        continue
                     betterPath.append(finalPath[i+1].position)
                 finalPath = betterPath
                 break
@@ -259,8 +257,6 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
                 
                 # update the reservation table ONLY IF there were no issues
                 for i in range(len(finalPath) - 1):
-                    if finalPath[i].position.road != finalPath[i+1].position.road:
-                        continue
                     curtime = finalPath[i].g
                     nextTime = finalPath[i+1].g
                     currentRoad = finalPath[i].position.road

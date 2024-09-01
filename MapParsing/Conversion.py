@@ -55,25 +55,6 @@ def parse_osm_roads(osm_file):
     
     return roads
 
-connections = []
-intersections = []
-taken_ints = set()
-
-# Example usage
-osm_file_path = 'MapParsing/maps/sydney.osm'
-roads = parse_osm_roads(osm_file_path)
-for road in roads:
-    nodes = road['nodes']
-    coords = road['coordinates']
-    if nodes[0] != nodes[-1]:
-        connections.append((nodes[0], nodes[-1]))
-        if nodes[0] not in taken_ints:
-            intersections.append((nodes[0], coords[0]))
-            taken_ints.add(nodes[0])
-        if nodes[-1] not in taken_ints:
-            intersections.append((nodes[-1], coords[-1]))
-            taken_ints.add(nodes[-1])
-
 def haversine_distance(lat1, lon1, lat2, lon2):
     # Radius of the Earth in meters
     R = 6371000
@@ -108,21 +89,46 @@ def convert_to_relative_scale(intersections):
     return relative_intersections
 
 
-intersections = convert_to_relative_scale(intersections)
-maxX = max(intersections, key=lambda x: x[1][0])[1][0]
-minX = min(intersections, key=lambda x: x[1][0])[1][0]
-maxY = max(intersections, key=lambda x: x[1][1])[1][1]
-minY = min(intersections, key=lambda x: x[1][1])[1][1]
-xSize = maxX - minX
-ySize = maxY - minY
+
+for city in ['melbourne', 'manhattan', 'los_angeles', 'london', 'tokyo']:
+# Example usage
+    connections = []
+    intersections = []
+    taken_ints = set()
+    osm_file_path = 'MapParsing/maps/' + city
+    roads = parse_osm_roads(osm_file_path)
+    for road in roads:
+        nodes = road['nodes']
+        coords = road['coordinates']
+        if nodes[0] != nodes[-1]:
+            connections.append((nodes[0], nodes[-1]))
+            if nodes[0] not in taken_ints:
+                intersections.append((nodes[0], coords[0]))
+                taken_ints.add(nodes[0])
+            if nodes[-1] not in taken_ints:
+                intersections.append((nodes[-1], coords[-1]))
+                taken_ints.add(nodes[-1])\
+                
+    intersections = convert_to_relative_scale(intersections)
+    maxX = max(intersections, key=lambda x: x[1][0])[1][0]
+    minX = min(intersections, key=lambda x: x[1][0])[1][0]
+    maxY = max(intersections, key=lambda x: x[1][1])[1][1]
+    minY = min(intersections, key=lambda x: x[1][1])[1][1]
+    xSize = maxX - minX
+    ySize = maxY - minY
 
 
 
-with open('NewVersion/sydney.txt', 'w') as f:
-    f.write(f"{xSize} {ySize}\n")
-    f.write(f"{len(intersections)}\n")
-    for intersection in intersections:
-        f.write(f"{intersection[0]} {intersection[1][0]} {intersection[1][1]}\n")
-    f.write(f"{len(connections)}\n")
-    for road in connections:
-        f.write(f"{road[0]} {road[1]}\n")
+    with open(f'NewVersion/{city}.txt', 'w') as f:
+        f.write(f"{xSize} {ySize}\n")
+        f.write(f"{len(intersections)}\n")
+        for intersection in intersections:
+            f.write(f"{intersection[0]} {intersection[1][0]} {intersection[1][1]}\n")
+        f.write(f"{len(connections)}\n")
+        for road in connections:
+            f.write(f"{road[0]} {road[1]}\n")
+
+
+
+
+

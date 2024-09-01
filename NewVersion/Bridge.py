@@ -152,16 +152,21 @@ class AllRoads:
 
 
 async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDensity, autoflow_percentage, mapSize, receiveNewDests, roadBlockage):
-    landscape = Landscape(1000, 
-                      1000,
+    cities = ["sydney", "melbourne", "manhattan", "los_angeles", "london", "tokyo"]
+    mapSize /= 100
+    length = int(mapSize * 3000)
+    
+    landscape = Landscape(length, 
+                      length,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
     
-    #landscape.load("NewVersion/sydney.txt")
-    landscape.generate()
+    if selectedIndex == -1:
+        landscape.generate()
+    else:
+        landscape.load(f"NewVersion/{cities[selectedIndex]}.txt")
+    
     allRoads = []
-    
-    
     factor = 3
     for road in landscape.roads:
         roadTuple = (road.int1.coordinates(), road.int2.coordinates(), road.laneCount)
@@ -208,7 +213,7 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
         allEndingPositions += road.availablePositions()
 
     # ========================================= VEHICLE GENERATION =========================================
-    totalVehicleCount = int(vehicleDensity * len(allStartingPositions) / 100 / 50)
+    totalVehicleCount = int(vehicleDensity * len(allStartingPositions) / 100 / 100)
     print("Total vehicle count: ", totalVehicleCount)
     autoFlowVehicleCount = int(totalVehicleCount * autoflow_percentage / 100)
     selfishVehicleCount = totalVehicleCount - autoFlowVehicleCount
