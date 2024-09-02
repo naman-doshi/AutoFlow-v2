@@ -222,9 +222,11 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
         allEndingPositions += road.availablePositions()
 
     # ========================================= VEHICLE GENERATION =========================================
-    totalVehicleCount = int(vehicleDensity * len(allStartingPositions) / 100 / 100)
+    # make sure we have >= 1 vehicle
+
+    totalVehicleCount = max(int(vehicleDensity * len(allStartingPositions) / 100 / 100), 1)
     print("Total vehicle count: ", totalVehicleCount)
-    autoFlowVehicleCount = int(totalVehicleCount * autoflow_percentage / 100)
+    autoFlowVehicleCount = max(1, int(totalVehicleCount * autoflow_percentage / 100))
     selfishVehicleCount = totalVehicleCount - autoFlowVehicleCount
 
     autoFlowVehicles = []
