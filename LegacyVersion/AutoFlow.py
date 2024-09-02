@@ -1039,7 +1039,7 @@ def recalculateRoutes(carPositions, landscape : Landscape, vehicles : list[Vehic
             temp = buffers[id]
             calculatedRoutes = [(round(x[0][0]), round(x[0][1]), x[1]) for x in route]
 
-            if calculatedRoutes != carPositions[id]["Routes"]:
+            if calculatedRoutes != carPositions[id]["Routes"] and len(calculatedRoutes) > 0:
                 if temp[-1] == calculatedRoutes[0]:
                     del calculatedRoutes[0]
                 temp += calculatedRoutes
