@@ -5,7 +5,7 @@ def parse_osm_roads(osm_file):
     tree = ET.parse(osm_file)
     root = tree.getroot()
     
-    # Create a dictionary to store node coordinates
+    # create a dictionary to store node coordinates, and find all nodes
     node_coords = {}
     for node in root.findall('node'):
         node_id = node.get('id')
@@ -14,6 +14,7 @@ def parse_osm_roads(osm_file):
         node_coords[node_id] = (lat, lon)
     
     roads = []
+    # valid highway types
     valid_highways = {
         'motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link',
         'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'unclassified',
@@ -21,6 +22,7 @@ def parse_osm_roads(osm_file):
         'living_street', 'track', 'path', 'road'
     }
     
+    # iterate through all ways (edges)
     for way in root.findall('way'):
         is_road = False
         road_info = {
@@ -30,9 +32,12 @@ def parse_osm_roads(osm_file):
             'tags': {}
         }
         
+        # iterate through all tags of the way
         for tag in way.findall('tag'):
             key = tag.get('k')
             value = tag.get('v')
+
+            # check if the way is actually a road
             if key == 'highway' and value in valid_highways:
                 is_road = True
                 road_info['tags'][key] = value
@@ -40,9 +45,14 @@ def parse_osm_roads(osm_file):
                 road_info['tags'][key] = value
         
         if is_road:
+
             highway_type = road_info['tags'].get('highway')
+            
+            # filter out paths that are not for motor vehicles
             if highway_type == 'path' and road_info['tags'].get('motor_vehicle') != 'yes' and road_info['tags'].get('motorcar') != 'yes':
                 continue
+            
+            # filter out roads with restricted access
             access = road_info['tags'].get('access')
             if access in {'private', 'delivery', 'emergency', 'forestry', 'no'}:
                 continue
@@ -51,11 +61,16 @@ def parse_osm_roads(osm_file):
                 road_info['nodes'].append(node_id)
                 if node_id in node_coords:
                     road_info['coordinates'].append(node_coords[node_id])
+            
             roads.append(road_info)
     
     return roads
 
 def haversine_distance(lat1, lon1, lat2, lon2):
+    '''
+    Calculates the great circle distance between two points
+    on the earth (specified in decimal degrees)
+    '''
     # Radius of the Earth in meters
     R = 6371000
     phi1 = math.radians(lat1)
@@ -69,12 +84,18 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def convert_to_relative_scale(intersections):
+    '''
+    Converts the lat/lon coordinates of intersections to a relative scale
+    with respect to the top-left intersection.
+    '''
     if not intersections:
         return []
 
+    # find the top-left intersection
     top_left = min(intersections, key=lambda x: (float(x[1][0]), float(x[1][1])))
     top_left_lat, top_left_lon = float(top_left[1][0]), float(top_left[1][1])
     
+    # for each intersection, calculate the relative x and y coordinates
     relative_intersections = []
     for node_id, (lat, lon) in intersections:
         lat, lon = float(lat), float(lon)
@@ -91,12 +112,16 @@ def convert_to_relative_scale(intersections):
 
 
 for city in ['melbourne', 'manhattan', 'los_angeles', 'london', 'tokyo']:
-# Example usage
+    
     connections = []
     intersections = []
     taken_ints = set()
+    
+    # parse the OSM file and extract road information
     osm_file_path = 'MapParsing/maps/' + city
     roads = parse_osm_roads(osm_file_path)
+    
+    # extract intersection coordinates and road connections
     for road in roads:
         nodes = road['nodes']
         coords = road['coordinates']
@@ -108,7 +133,8 @@ for city in ['melbourne', 'manhattan', 'los_angeles', 'london', 'tokyo']:
             if nodes[-1] not in taken_ints:
                 intersections.append((nodes[-1], coords[-1]))
                 taken_ints.add(nodes[-1])\
-                
+
+    # convert the coordinates to a relative scale (coordinate compression)
     intersections = convert_to_relative_scale(intersections)
     maxX = max(intersections, key=lambda x: x[1][0])[1][0]
     minX = min(intersections, key=lambda x: x[1][0])[1][0]
@@ -118,12 +144,15 @@ for city in ['melbourne', 'manhattan', 'los_angeles', 'london', 'tokyo']:
     ySize = maxY - minY
 
 
-
+    # write the new map to a text file in our custom format
     with open(f'NewVersion/{city}.txt', 'w') as f:
+        
         f.write(f"{xSize} {ySize}\n")
         f.write(f"{len(intersections)}\n")
+        
         for intersection in intersections:
             f.write(f"{intersection[0]} {intersection[1][0]} {intersection[1][1]}\n")
+        
         f.write(f"{len(connections)}\n")
         for road in connections:
             f.write(f"{road[0]} {road[1]}\n")

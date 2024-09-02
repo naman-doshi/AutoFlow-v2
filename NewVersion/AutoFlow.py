@@ -138,20 +138,26 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
                     betterPath.append(finalPath[i+1].position)
                 finalPath = betterPath
                 break
-                
+            
+            # this is how we check for the next node to visit: first, iterate over all associated virtual intersections on the same road
+            # these are the nodes that allow you to transition to the next road, so they are an intermediary step
             for avi in currentNode.position.road.associatedVirtualIntersections:
 
+                # check if this virtual intersection is attached to the right side of the road
                 nodeNeeded = None
                 if currentNode.position.direction == 1:
                     nodeNeeded = currentNode.position.road.int2
                 else:
                     nodeNeeded = currentNode.position.road.int1
                 
+                # if its not the right side of the road, skip this virtual intersection
                 if avi.correspondingRealIntersection != nodeNeeded or avi.direction != currentNode.position.direction:
                     continue
-
-                for neighbour in avi.connectingVirtualInts:
                 
+                # then, we check everything this intermediary node is connected to - hopefully, we find one on another road
+                for neighbour in avi.connectingVirtualInts:
+                    
+                    # if we have already visited this node, skip it
                     if neighbour in closedNodes or neighbour.road == currentNode.position.road:
                         continue
                     
@@ -168,7 +174,8 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
 
                     if neighbour in openDict and neighNode.g > openDict[neighbour].g:
                         continue
-
+                    
+                    # push the node into the open list
                     heappush(openNodes, neighNode)
                     openDict[intermediary.position] = intermediary
                     openDict[neighbour] = neighNode
@@ -266,18 +273,23 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
                 finalPath = betterPath
 
                 break
-
+            
+            # this is how we check for the next node to visit: first, iterate over all associated virtual intersections on the same road
+            # these are the nodes that allow you to transition to the next road, so they are an intermediary step
             for avi in currentNode.position.road.associatedVirtualIntersections:
-
+                
+                # check if this virtual intersection is attached to the right side of the road
                 nodeNeeded = None
                 if currentNode.position.direction == 1:
                     nodeNeeded = currentNode.position.road.int2
                 else:
                     nodeNeeded = currentNode.position.road.int1
                 
+                # if its not the right side of the road, skip this virtual intersection
                 if avi.correspondingRealIntersection != nodeNeeded or avi.direction != currentNode.position.direction:
                     continue
-
+                
+                # then, we check everything this intermediary node is connected to - hopefully, we find one on another road
                 for neighbour in avi.connectingVirtualInts:
                 
                     if neighbour in closedNodes:
@@ -334,7 +346,8 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
 
                     if neighbour in openDict and neighNode.g > openDict[neighbour].g:
                         continue
-
+                    
+                    # push the node into the open list
                     heappush(openNodes, neighNode)
                     openDict[neighbour] = neighNode
                     openDict[intermediary.position] = intermediary

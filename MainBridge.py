@@ -19,6 +19,7 @@ async def handler(websocket: WebSocketServerProtocol):
     receiveNewDests = message["receiveNewDests"]
     roadBlockage = message["roadBlockage"]
     graphics = int(message["graphics"])
+    
     # graphics being true means you want 3D
     cities = ["sydney", "melbourne", "manhattan", "los_angeles", "london", "tokyo"]
     if graphics == 0:

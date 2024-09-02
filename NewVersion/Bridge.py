@@ -153,14 +153,18 @@ class AllRoads:
 
 async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDensity, autoflow_percentage, mapSize, receiveNewDests, roadBlockage):
     cities = ["sydney", "melbourne", "manhattan", "los_angeles", "london", "tokyo"]
+    
+    # convert map size to length: we set max size to 3k * 3k metres
     mapSize /= 100
     length = int(mapSize * 3000)
     
+    # generate the landscape
     landscape = Landscape(length, 
                       length,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
     
+    # if the user wants to load a city, do that, otherwise populate the existing landscape
     if selectedIndex == -1:
         landscape.generate()
     else:
@@ -168,12 +172,15 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
     
     allRoads = []
     factor = 3
+    
+    # ========================================= ROAD GENERATION =========================================
     for road in landscape.roads:
         roadTuple = (road.int1.coordinates(), road.int2.coordinates(), road.laneCount)
         virtInts = []
         
         for intersection in road.virtualInts:
             if intersection.position != 1:
+                # if the intersection is not a real intersection, we don't need to send the traffic light pattern
                 virtInts.append(VirtualIntMsg(
                     intersection.id, 
                     0, 
@@ -185,6 +192,7 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
                     0,
                     road.id))
             else:
+                # otherwise, we need to send the traffic light pattern too
                 associatedInt = intersection.correspondingRealIntersection
                 virtInts.append(VirtualIntMsg(
                     intersection.id, 
@@ -197,6 +205,7 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
                     associatedInt.trafficLightDuration,
                     road.id))
         
+        # create a road init message, and scale the coordinates by a factor of 3 to make it look cohesive on the frontend
         allRoads.append(RoadInitMsg(road.id, 
                                     Vector2Message(roadTuple[0][0]*factor, roadTuple[0][1]*factor), 
                                     Vector2Message(roadTuple[1][0]*factor, roadTuple[1][1]*factor), 
@@ -256,8 +265,12 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
     allRoutes = computeRoutes(selfishVehicles, autoFlowVehicles, landscape)
     for vehicle in allVehicles:
         route = []
+        
+        # skip it if the algorithm could not find a route
         if allRoutes[vehicle.id] == []:
             continue
+        
+        # do the same as we did for the roads: if the intersection is not a real intersection, we don't need to send the traffic light pattern
         for intersection in allRoutes[vehicle.id]:
             if intersection.position != 1:
                 route.append(VirtualIntMsg(
@@ -285,10 +298,14 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
         
         vehicle.route = route
 
+    # these are the final vehicles that will be sent to the frontend
     dataclassVehicles = []
     for vehicle in allVehicles:
+        
         if vehicle.route == []:
             continue
+
+        # set its type - 0 for conventional, 1 for electric, 2 for bus
         type = 0
         if isinstance(vehicle, ElectricVehicle):
             type = 1
