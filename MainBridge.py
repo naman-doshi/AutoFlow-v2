@@ -9,7 +9,8 @@ PORT = 8001
 
 
 async def handler(websocket: WebSocketServerProtocol):
-    # User input
+    
+    # input from the frontend
     message = await websocket.recv()
     message = eval(message)
     selectedIndex = int(message["selectedIndex"])
@@ -20,7 +21,7 @@ async def handler(websocket: WebSocketServerProtocol):
     roadBlockage = message["roadBlockage"]
     graphics = int(message["graphics"])
     
-    # graphics being true means you want 3D
+    # graphics being true means the user wants a 3D simulation; thus we use the Legacy version
     cities = ["sydney", "melbourne", "manhattan", "los_angeles", "london", "tokyo"]
     if graphics == 0:
         await handleNew(websocket, selectedIndex, vehicleDensity, autoflow_percentage, mapSize, receiveNewDests, roadBlockage)
