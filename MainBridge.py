@@ -24,7 +24,6 @@ async def handler(websocket: WebSocketServerProtocol):
     if graphics == 0:
         await handleNew(websocket, selectedIndex, vehicleDensity, autoflow_percentage, mapSize, receiveNewDests, roadBlockage)
     else:
-        print("No city selected")
         await handleLegacy(websocket, message)
 
 async def main():
