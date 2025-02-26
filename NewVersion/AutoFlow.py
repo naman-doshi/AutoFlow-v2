@@ -1,4 +1,3 @@
-
 #================ IMPORTS ================
 from NewVersion.LandscapeComponents import *
 from NewVersion.VehicleAgents import *
@@ -8,6 +7,8 @@ from heapq import *
 from math import ceil
 import random
 from NewVersion.SegmentTree import *
+import time
+import subprocess
 #=========================================
 MAX_ROAD_SPEED_MPS = 28
 
@@ -216,142 +217,206 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
     TODO: improve speed using math + memoization + planar graph optimisations
     """
 
+    # Start the C++ program as a subprocess
+    autoflowVehicles = sortVehicles(autoflow_vehicles)
+    
+
+    # Send data to the C++ program
+    input_data = ""
+    
+    # intersections
+    input_data += f"{len(landscape.intersections)}\n"
+    for intersection in landscape.intersections.values():
+        input_data += f"{intersection.id} {intersection.trafficLightDuration} {intersection.roadCount} {intersection.x} {intersection.y}\n"
+    
+    # roads
+    input_data += f"{len(landscape.roads)}\n"
+    for road in landscape.roads:
+        st = f"{road.id} {road.length} {road.speedLimit} {road.capacity} {road.int1.id} {road.int2.id} {road.traversalTime} {road.laneCount}\n"
+        input_data += st
+        input_data += f"{len(road.associatedVirtualIntersections)}\n"
+        for avi in road.associatedVirtualIntersections:
+            input_data += f"{avi.id}\n"
+
+    # virtual ints
+    input_data += f"{len(landscape.virtualIntersections)}\n"
+    for vi in landscape.virtualIntersections:
+        corrint = vi.correspondingRealIntersection
+        corrid = -1
+        if corrint:
+            corrid = corrint.id
+        input_data += f"{vi.id} {corrid} {vi.direction} {vi.x} {vi.y} {vi.road.id} \n{len(vi.connectingVirtualInts)}\n"
+        for cvi in vi.connectingVirtualInts:
+            input_data += f"{cvi.id}\n"
+
+    # vehicles
+    input_data += f"{len(autoflowVehicles)}\n"
+    for vehicle in autoflowVehicles:
+        input_data += f"{vehicle.id} {vehicle.road.id} {vehicle.position} {vehicle.starting.id} {vehicle.ending.id}\n"
+    
+    process = subprocess.Popen(["NewVersion/Algorithm/AutoFlow"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # process.stdin.write(input_data)
+    # process.stdin.flush()
+    stdout, stderr = process.communicate(input=input_data)
+    
+    # Check for errors
+    if stderr:
+        print(f"Error from C++ program: {stderr}")
+
+    # Read the output from the C++ program
+    #output_data = process.stdout.readline()
+    #print(f"C++ says: {output_data}")
+    print(stdout)
+
+    process.stdin.close()
+    process.wait()
+
     routes = {}
 
-    # Sort the list of vehicles
-    autoflowVehicles = sortVehicles(autoflow_vehicles)
+    # print(len(landscape.intersections))
 
-    # how many vehicles on each road at each time
-    # implemented using a lazy minimum segment tree for O(logn) range queries and updates
-    reservationTable : dict[Road, LPSTree] = defaultdict(lambda: LPSTree(10000, value=0, reducef=min))
 
-    # populate the reservation table for each car's initial starting position until they reach the end of the road, as this is unavoidable
-    for vehicle in autoflowVehicles:
-        traversalTime = ceil(vehicle.road.traversalTime * (1 - vehicle.position))
-        reservationTable[vehicle.road].add(0, traversalTime, 1)
+    # # Sort the list of vehicles
+    
+
+    # # how many vehicles on each road at each time
+    # # implemented using a lazy minimum segment tree for O(logn) range queries and updates
+    # reservationTable : dict[Road, LPSTree] = defaultdict(lambda: LPSTree(10000, value=0, reducef=min))
+
+    # # populate the reservation table for each car's initial starting position until they reach the end of the road, as this is unavoidable
+    # for vehicle in autoflowVehicles:
+    #     traversalTime = ceil(vehicle.road.traversalTime * (1 - vehicle.position))
+    #     reservationTable[vehicle.road].add(0, traversalTime, 1)
         
-    for vehicle in autoflowVehicles:
+    # for vehicle in autoflowVehicles:
+
+    #     starttime = time.time()
         
-        # A*
-        openNodes = []
-        closedNodes = set()
-        start = Node(vehicle.starting)
-        end = Node(vehicle.ending)
-        openDict = {}
+    #     # A*
+    #     openNodes = []
+    #     openSet = set()
+    #     closedNodes = set()
+    #     start = Node(vehicle.starting)
+    #     end = Node(vehicle.ending)
+    #     openDict = defaultdict(lambda: 9999)
 
-        heappush(openNodes, start)
-        openDict[start.position] = start
-        finalPath = []
+    #     heappush(openNodes, start)
+    #     openSet.add(start.position)
+    #     openDict[start.position] = 0
+    #     finalPath = []
+    #     exp = 0
 
-        while len(openNodes) > 0:
-            currentNode = heappop(openNodes)
-            try:
-                del openDict[currentNode.position]
-            except:
-                pass
+    #     while len(openNodes) > 0:
+    #         exp += 1
+    #         #print(exp)
+    #         currentNode = heappop(openNodes)
+    #         openSet.remove(currentNode.position)
+    #         closedNodes.add(currentNode.position)
+
+    #         if end.position.road == currentNode.position.road:
+    #             path = []
+    #             while currentNode:
+
+    #                 path.append(currentNode)
+    #                 currentNode = currentNode.parent
+                
+    #             finalPath = path[::-1]
+    #             betterPath = []
+                
+    #             # update the reservation table ONLY IF there were no issues
+    #             for i in range(len(finalPath) - 1):
+    #                 curtime = finalPath[i].g
+    #                 nextTime = finalPath[i+1].g
+    #                 currentRoad = finalPath[i].position.road
+    #                 reservationTable[currentRoad].add(curtime, nextTime+1, 1)
+    #                 betterPath.append(finalPath[i+1].position)
+
+    #             finalPath = betterPath
+
+    #             break
             
-            closedNodes.add(currentNode.position)
-
-            if end.position.road == currentNode.position.road:
-                path = []
-                while currentNode:
-
-                    path.append(currentNode)
-                    currentNode = currentNode.parent
+    #         # this is how we check for the next node to visit: first, iterate over all associated virtual intersections on the same road
+    #         # these are the nodes that allow you to transition to the next road, so they are an intermediary step
+    #         # think of avi being at the end of curr road and neighbour being at start of next road
+    #         for avi in currentNode.position.road.associatedVirtualIntersections:
                 
-                finalPath = path[::-1]
-                betterPath = []
+    #             # check if this virtual intersection is attached to the correct side of the road
+    #             nodeNeeded = None
+    #             if currentNode.position.direction == 1:
+    #                 nodeNeeded = currentNode.position.road.int2
+    #             else:
+    #                 nodeNeeded = currentNode.position.road.int1
                 
-                # update the reservation table ONLY IF there were no issues
-                for i in range(len(finalPath) - 1):
-                    curtime = finalPath[i].g
-                    nextTime = finalPath[i+1].g
-                    currentRoad = finalPath[i].position.road
-                    reservationTable[currentRoad].add(curtime, nextTime+1, 1)
-                    betterPath.append(finalPath[i+1].position)
-
-                finalPath = betterPath
-
-                break
-            
-            # this is how we check for the next node to visit: first, iterate over all associated virtual intersections on the same road
-            # these are the nodes that allow you to transition to the next road, so they are an intermediary step
-            for avi in currentNode.position.road.associatedVirtualIntersections:
+    #             # if its not the correct side of the road, skip this virtual intersection
+    #             if avi.correspondingRealIntersection != nodeNeeded or avi.direction != currentNode.position.direction:
+    #                 continue
                 
-                # check if this virtual intersection is attached to the right side of the road
-                nodeNeeded = None
-                if currentNode.position.direction == 1:
-                    nodeNeeded = currentNode.position.road.int2
-                else:
-                    nodeNeeded = currentNode.position.road.int1
+    #             # then, we check everything this intermediary node is connected to - hopefully, we find one on another road
+    #             for neighbour in avi.connectingVirtualInts:
                 
-                # if its not the right side of the road, skip this virtual intersection
-                if avi.correspondingRealIntersection != nodeNeeded or avi.direction != currentNode.position.direction:
-                    continue
-                
-                # then, we check everything this intermediary node is connected to - hopefully, we find one on another road
-                for neighbour in avi.connectingVirtualInts:
-                
-                    if neighbour in closedNodes:
-                        continue
+    #                 if neighbour in closedNodes:
+    #                     continue
                     
-                    intermediary = Node(avi, currentNode)
-                    neighNode = Node(neighbour, intermediary)
-                    road = currentNode.position.road
-                    currentTime = max(ceil(currentNode.g), 0)
-                    #print(f"Current time: {currentTime}")
+    #                 intermediary = Node(avi, currentNode)
+    #                 neighNode = Node(neighbour, intermediary)
+    #                 road = currentNode.position.road
+    #                 currentTime = max(ceil(currentNode.g), 0)
+    #                 #print(f"Current time: {currentTime}")
                     
-                    roadLeavingTime = currentTime
-                    congestion = reservationTable[road][currentTime] / autoFlowPercentage
+    #                 roadLeavingTime = currentTime
+    #                 congestion = reservationTable[road][currentTime] / autoFlowPercentage
 
-                    # binary search on the first index such that the range min is < capacity (log2(x)^2 complexity)
-                    l = currentTime + 1
-                    r = 9999
-                    tree = reservationTable[road]
-                    r += 1
-                    while l < r:
-                        mid = l + (r - l) // 2
-                        query = tree.get(currentTime, mid+1)
-                        if query < road.capacity * autoFlowPercentage:
-                            r = mid
-                        else:
-                            l = mid + 1
-                    roadLeavingTime = r
+    #                 # binary search on the first index such that the range min is < capacity (log2(x)^2 complexity)
+    #                 l = currentTime + 1
+    #                 r = 9999
+    #                 tree = reservationTable[road]
+    #                 r += 1
+    #                 while l < r:
+    #                     mid = l + (r - l) // 2
+    #                     query = tree.get(currentTime, mid+1)
+    #                     if query < road.capacity * autoFlowPercentage:
+    #                         r = mid
+    #                     else:
+    #                         l = mid + 1
+    #                 roadLeavingTime = r
 
-                    if roadLeavingTime >= 10000:
-                        roadLeavingTime = currentTime + 1
+    #                 if roadLeavingTime >= 10000:
+    #                     roadLeavingTime = currentTime + 1
 
-                    #print(f"Road leaving time: {roadLeavingTime}")
+    #                 #print(f"Road leaving time: {roadLeavingTime}")
                 
                     
-                    # calculate traversal time until we reach the last car on the road
-                    roadLeavingTime += max(0, (road.length - VEHICLE_LENGTH_METRES * congestion) / road.speedLimit)
-                    #print(f"Road leaving time after congestion: {roadLeavingTime}")
+    #                 # calculate traversal time until we reach the last car on the road
+    #                 roadLeavingTime += max(0, (road.length - VEHICLE_LENGTH_METRES * congestion) / road.speedLimit)
+    #                 #print(f"Road leaving time after congestion: {roadLeavingTime}")
 
-                    rInt = neighbour.correspondingRealIntersection
+    #                 rInt = neighbour.correspondingRealIntersection
 
-                    # calculate time until all the traffic light cycles
-                    cycleTime = rInt.trafficLightDuration * rInt.roadCount
-                    roadLeavingTime += cycleTime * congestion
+    #                 # calculate time until all the traffic light cycles
+    #                 cycleTime = rInt.trafficLightDuration * rInt.roadCount
+    #                 roadLeavingTime += cycleTime * congestion
 
-                    #print(f"Road leaving time after traffic lights: {roadLeavingTime}")
+    #                 #print(f"Road leaving time after traffic lights: {roadLeavingTime}")
 
-                    neighNode.g = ceil(roadLeavingTime)
-                    neighNode.h = heuristic(neighbour, vehicle.ending)
-                    neighNode.f = neighNode.g + neighNode.h
-                    intermediary.g = neighNode.g
-                    intermediary.h = heuristic(avi, vehicle.ending)
-                    intermediary.f = intermediary.g + intermediary.h
+    #                 neighNode.g = ceil(roadLeavingTime)
+    #                 neighNode.h = heuristic(neighbour, vehicle.ending)
+    #                 neighNode.f = neighNode.g + neighNode.h
+    #                 intermediary.g = neighNode.g
+    #                 intermediary.h = heuristic(avi, vehicle.ending)
+    #                 intermediary.f = intermediary.g + intermediary.h
 
-
-                    if neighbour in openDict and neighNode.g > openDict[neighbour].g:
-                        continue
+    #                 if neighbour not in openSet:
+    #                     openSet.add(neighbour)
+    #                     heappush(openNodes, neighNode)
+    #                 elif neighNode.g > openDict[neighbour]:
+    #                     continue
                     
-                    # push the node into the open list
-                    heappush(openNodes, neighNode)
-                    openDict[neighbour] = neighNode
-                    openDict[intermediary.position] = intermediary
+    #                 # push the node into the open list
+    #                 openDict[neighbour] = neighNode.g
+    #                 openDict[intermediary.position] = intermediary.g
 
-        routes[vehicle.id] = finalPath
+        # routes[vehicle.id] = finalPath
+
+        # print(f"routed in {time.time() - starttime}")
 
     return routes
