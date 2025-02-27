@@ -33,49 +33,23 @@ class Vehicle(ABC):
         self.emissionRate = 0
         self.passengerCount = 1
         self.route = []
+        self.starting = []
+        self.ending = []
+        self.startingRoad = 0
+        self.endingRoad = 0
 
     def setRoutingSystem(self, systemID: int):
         self.routingSystem = Vehicle.routingSystems[systemID]
 
     # [direction, lane, position]
-    def setLocation(self, virtualIntersection : VirtualIntersection):
-        self.starting = virtualIntersection
-        road = virtualIntersection.road
-        self.road = road  # the road the vehicle is currently on
-        self.direction = virtualIntersection.direction  # the direction the vehicle is currently facing
-        self.lane = virtualIntersection.lane  # the lane the vehicle is currently on
-        self.position = virtualIntersection.position
-
-        if self.direction == 1:
-            x = road.int1.x + (road.int2.x - road.int1.x) * self.position
-            y = road.int1.y + (road.int2.y - road.int1.y) * self.position
-        else:
-            x = road.int2.x + (road.int1.x - road.int2.x) * self.position
-            y = road.int2.y + (road.int1.y - road.int2.y) * self.position
-
-        self.startRealPosition = (x, y)
-
-    def setDestination(self, virtualIntersection : VirtualIntersection):
-        self.ending = virtualIntersection
-        road = virtualIntersection.road
-        self.destinationRoad = road
-        self.destinationDirection = virtualIntersection.direction
-        self.destinationLane = virtualIntersection.lane
-        self.destinationPosition = virtualIntersection.position
-
-        if self.destinationDirection == 1:
-            x = road.int1.x + (road.int2.x - road.int1.x) * self.destinationPosition
-            y = road.int1.y + (road.int2.y - road.int1.y) * self.destinationPosition
-        else:
-            x = road.int2.x + (road.int1.x - road.int2.x) * self.destinationPosition
-            y = road.int2.y + (road.int1.y - road.int2.y) * self.destinationPosition
-        
-        self.desinationRealPosition = (x, y)
 
     def __deepcopy__(self, memo):
         agentCopy: Vehicle = self.__class__(self.id)
-        agentCopy.setLocation(self.road, (self.direction, self.lane, self.position))
-        agentCopy.setDestination(self.destinationRoad, (self.destinationDirection, self.destinationLane, self.destinationPosition))
+        agentCopy.emissionRate = self.emissionRate
+        agentCopy.passengerCount = self.passengerCount
+        agentCopy.route = self.route.copy()
+        agentCopy.starting = self.starting.copy()
+        agentCopy.ending = self.ending.copy()
         agentCopy.routingSystem = self.routingSystem
         return agentCopy
 

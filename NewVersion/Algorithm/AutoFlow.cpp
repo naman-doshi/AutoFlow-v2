@@ -12,10 +12,8 @@ using namespace std;
 // 4. make traffic light timings more accurate using more info
 
 unordered_map<int, Intersection> intersections;
-unordered_map<int, VirtualIntersection> virtualIntersections;
 unordered_map<int, Road> roads;
 unordered_map<int, Vehicle> vehicles;
-unordered_map<int, vector<int>> roadToVI;
 
 struct Lazy {
     int v;
@@ -86,13 +84,13 @@ template<class T, class U, int SZ> struct LazySeg {
 
 class PathNode {
 public:
-    shared_ptr<VirtualIntersection> intersection;
-    shared_ptr<PathNode> parent;
+    Intersection intersection;
+    PathNode* parent;
     float g;
     float h;
     float f;
 
-    PathNode(shared_ptr<VirtualIntersection> intersection, shared_ptr<PathNode> parent = nullptr) {
+    PathNode(Intersection intersection, PathNode* parent = nullptr) {
         this->intersection = intersection;
         this->parent = parent;
         this->g = 0;
@@ -101,7 +99,7 @@ public:
     }
 
     bool operator==(const PathNode& other) const {
-        return intersection == other.intersection;
+        return intersection.id == other.intersection.id;
     }
 
     bool operator<(const PathNode& other) const {
@@ -109,11 +107,11 @@ public:
     }
 
     size_t operator()(const PathNode& node) const {
-        return hash<int>()(node.intersection->id);
+        return hash<int>()(node.intersection.id);
     }
 };
 
-float heuristic(VirtualIntersection& a, VirtualIntersection& b) {
+float heuristic(Intersection& a, Intersection& b) {
     // euclidean
     return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2)) / 28;
 }
@@ -132,77 +130,42 @@ void readData() {
     cin >> numRoads;
     for (int i = 0; i < numRoads; ++i) {
         Road road;
-        int numAssociatedVirtualIntersections;
+        int numPositions;
         int int1Id, int2Id;
         cin >> road.id >> road.length >> road.speedLimit >> road.capacity >> int1Id >> int2Id >> road.traversalTime >> road.laneCount;
-        road.int1 = make_shared<Intersection>(intersections[int1Id]);
-        road.int2 = make_shared<Intersection>(intersections[int2Id]);
-        cin >> numAssociatedVirtualIntersections;
+        road.int1Id = int1Id;
+        road.int2Id = int2Id;
+        intersections[int1Id].roadID = road.id;
+        intersections[int2Id].roadID = road.id;
+        intersections[int1Id].connectingIntersectionIDs.push_back(int2Id);
+        intersections[int2Id].connectingIntersectionIDs.push_back(int1Id);
+        cin >> numPositions;
         //cout << numAssociatedVirtualIntersections << endl;
-        road.associatedVirtualIntersectionIds.resize(numAssociatedVirtualIntersections);
-        for (int j = 0; j < numAssociatedVirtualIntersections; ++j) {
-            cin >> road.associatedVirtualIntersectionIds[j];
+        road.positions = vector<vector<double>>(numPositions, vector<double>(3));
+        for (int j = 0; j < numPositions; ++j) {
+            cin >> road.positions[j][0] >> road.positions[j][1] >> road.positions[j][2];
         }
         //cout << road.associatedVirtualIntersectionIds.size() << endl;
         roads[road.id] = road;
     }
 
-    int numVirtualIntersections;
-    cin >> numVirtualIntersections;
-    for (int i = 0; i < numVirtualIntersections; ++i) {
-        VirtualIntersection vi;
-        int numConnectingVirtualInts;
-        int correspondingRealIntersectionId, roadId;
-        cin >> vi.id >> correspondingRealIntersectionId >> vi.direction >> vi.x >> vi.y >> vi.roadID;
-        vi.road = make_shared<Road>(roads[vi.roadID]);
-        roadToVI[vi.roadID].push_back(vi.id);
-        if (correspondingRealIntersectionId != -1) {
-            vi.correspondingRealIntersection = make_shared<Intersection>(intersections[correspondingRealIntersectionId]);
-        }
-        cin >> numConnectingVirtualInts;
-        vector<int> connectingVIIds(numConnectingVirtualInts);
-        for (int j = 0; j < numConnectingVirtualInts; ++j) {
-            cin >> connectingVIIds[j];
-        }
-        vi.connectingVIIds = connectingVIIds;
-        virtualIntersections[vi.id] = vi;
-    }
-
-    for (auto& [id, vi] : virtualIntersections) {
-        for (int connectingVIId : vi.connectingVIIds) {
-            shared_ptr<VirtualIntersection> connectingVI = make_shared<VirtualIntersection>(virtualIntersections[connectingVIId]);
-            vi.connectingVirtualInts.push_back(connectingVI);
-        }
-    }
-
-    for (auto& [id, road] : roads) {
-        //cout << road.id << endl;
-        for (int associatedVIId : road.associatedVirtualIntersectionIds) {
-            shared_ptr<VirtualIntersection> associatedVI = make_shared<VirtualIntersection>(virtualIntersections[associatedVIId]);
-            road.associatedVirtualIntersections.push_back(associatedVI);
-            //cout << associatedVI->id << endl;
-        }
-        for (int viId : roadToVI[road.id]) {
-            virtualIntersections[viId].road = make_shared<Road>(road);
-        }
-        //cout << road.associatedVirtualIntersections.size() << endl;
-    }
 
     int numVehicles;
     cin >> numVehicles;
     for (int i = 0; i < numVehicles; ++i) {
         Vehicle vehicle;
         int roadId, startingIntersectionId, endingIntersectionId;
-        cin >> vehicle.id >> roadId >> vehicle.position >> startingIntersectionId >> endingIntersectionId;
-        vehicle.road = make_shared<Road>(roads[roadId]);
-        vehicle.starting = make_shared<VirtualIntersection>(virtualIntersections[startingIntersectionId]);
-        vehicle.ending = make_shared<VirtualIntersection>(virtualIntersections[endingIntersectionId]);
+        double s1, s2, s3, e1, e2, e3;
+        cin >> vehicle.id >> roadId >> vehicle.position >> s1 >> s2 >> s3 >> e1 >> e2 >> e3;
+        vehicle.road = roads[roadId];
+        
+        vehicle.starting = {s1, s2, s3};
+        vehicle.ending = {e1, e2, e3};
         vehicles[vehicle.id] = vehicle;
     }
 
     cout << "Loaded " << intersections.size() << " intersections, "
          << roads.size() << " roads, "
-         << virtualIntersections.size() << " virtual intersections, and "
          << vehicles.size() << " vehicles." << endl;
 }
 
@@ -223,16 +186,16 @@ void AutoFlow() {
   }
 
   unordered_map<int, float> defaultG;
-  for (auto& [id, vi] : virtualIntersections) {
+  for (auto& [id, vi] : intersections) {
     defaultG[vi.id] = 1e9;
   }
   
   for (auto& [id, vehicle] : vehicles) {
-    int traversalTime = ceil(vehicle.road->traversalTime * (1 - vehicle.position));
-    reservationTable[vehicle.road->id].upd(0, traversalTime, {1, true});
+    int traversalTime = ceil(vehicle.road.traversalTime * (1 - vehicle.position));
+    reservationTable[vehicle.road.id].upd(0, traversalTime, {1, true});
   }
 
-  unordered_map<int, vector<VirtualIntersection>> paths;
+  unordered_map<int, vector<Intersection>> paths;
 
 
   for (auto& [id, vehicle] : vehicles) {
@@ -241,6 +204,18 @@ void AutoFlow() {
 
     priority_queue<PathNode> openNodes;
     set<int> openSet, closedSet;
+
+    Intersection starting;
+    if (vehicle.starting[1] == 1) {
+      starting = intersections[vehicle.road.int2Id];
+    } else {
+      starting = intersections[vehicle.road.int1Id];
+    }
+    
+    
+    
+    
+    
     PathNode start(vehicle.starting);
     PathNode end(vehicle.ending);
     unordered_map<int, float> gScore = defaultG;

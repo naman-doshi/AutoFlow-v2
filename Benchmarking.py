@@ -19,8 +19,8 @@ allEndingPositions = []
 autoFlowVehicles = []
 
 for road in landscape.roads:
-    allStartingPositions += road.availablePositions()
-    allEndingPositions += road.availablePositions()
+    allStartingPositions += [road.id] + road.availablePositions()
+    allEndingPositions += [road.id] + road.availablePositions()
 
 # start timer
 start = time.time()
@@ -30,11 +30,13 @@ for i in range(toTest):
     vehicle.setRoutingSystem(1)
     autoFlowVehicles.append(vehicle)
     startPos = random.choice(allStartingPositions)
+    vehicle.startingRoadId = startPos[0]
     allStartingPositions.remove(startPos)
-    vehicle.setLocation(startPos)
+    vehicle.starting = startPos[1:]
     endPos = random.choice(allEndingPositions)
+    vehicle.endingRoadId = endPos[0]
     allEndingPositions.remove(endPos)
-    vehicle.setDestination(endPos)
+    vehicle.ending = endPos[1:]
 
 end = time.time()
 print("Time taken to generate vehicles: ", end - start)

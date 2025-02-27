@@ -234,25 +234,15 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
     for road in landscape.roads:
         st = f"{road.id} {road.length} {road.speedLimit} {road.capacity} {road.int1.id} {road.int2.id} {road.traversalTime} {road.laneCount}\n"
         input_data += st
-        input_data += f"{len(road.associatedVirtualIntersections)}\n"
-        for avi in road.associatedVirtualIntersections:
-            input_data += f"{avi.id}\n"
+        input_data += f"{len(road.positions)}\n"
+        for pos in road.positions:
+            input_data += f"{pos[0]} {pos[1]} {pos[2]}\n"
 
-    # virtual ints
-    input_data += f"{len(landscape.virtualIntersections)}\n"
-    for vi in landscape.virtualIntersections:
-        corrint = vi.correspondingRealIntersection
-        corrid = -1
-        if corrint:
-            corrid = corrint.id
-        input_data += f"{vi.id} {corrid} {vi.direction} {vi.x} {vi.y} {vi.road.id} \n{len(vi.connectingVirtualInts)}\n"
-        for cvi in vi.connectingVirtualInts:
-            input_data += f"{cvi.id}\n"
 
     # vehicles
     input_data += f"{len(autoflowVehicles)}\n"
     for vehicle in autoflowVehicles:
-        input_data += f"{vehicle.id} {vehicle.road.id} {vehicle.position} {vehicle.starting.id} {vehicle.ending.id}\n"
+        input_data += f"{vehicle.id} {vehicle.road.id} {vehicle.position} {vehicle.starting[0]} {vehicle.starting[1]} {vehicle.starting[2]} {vehicle.ending[0]} {vehicle.ending[1]} {vehicle.ending[2]}\n"
     
     process = subprocess.Popen(["NewVersion/Algorithm/AutoFlow"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # process.stdin.write(input_data)

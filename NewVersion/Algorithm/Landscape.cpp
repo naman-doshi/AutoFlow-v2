@@ -1,8 +1,6 @@
 #include <bits/stdc++.h>
 using namespace std;
 
-class VirtualIntersection;
-
 class Intersection {
 public:
     int id;
@@ -11,6 +9,7 @@ public:
     float x;
     float y;
     int roadID;
+    vector<int> connectingIntersectionIDs;
 };
 
 class Road {
@@ -20,27 +19,17 @@ public:
     int speedLimit;
     float capacity;
     int laneCount;
-    shared_ptr<Intersection> int1;
-    shared_ptr<Intersection> int2;
-    vector<shared_ptr<VirtualIntersection> > associatedVirtualIntersections;
-    vector<int> associatedVirtualIntersectionIds;
+    int int1Id;
+    int int2Id;
     float traversalTime;
-};
-
-class VirtualIntersection : public Intersection {
-public:
-    shared_ptr<Intersection> correspondingRealIntersection;
-    int direction;
-    vector<shared_ptr<VirtualIntersection> > connectingVirtualInts;
-    shared_ptr<Road> road;
-    vector<int> connectingVIIds;
+    vector<vector<double>> positions;
 };
 
 class Vehicle {
 public:
     int id;
-    shared_ptr<Road> road;
+    Road road;
+    Road endingRoad;
     float position;
-    shared_ptr<VirtualIntersection> starting;
-    shared_ptr<VirtualIntersection> ending;
+    vector<double> starting, ending;
 };
