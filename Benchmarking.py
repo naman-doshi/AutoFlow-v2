@@ -3,10 +3,10 @@ from NewVersion.AutoFlow import *
 import random
 import time
 
-toTest = 1000
+toTest = 100
 
-landscape = Landscape(5000, 
-                      5000,
+landscape = Landscape(1000, 
+                      1000,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
 landscape.generate()

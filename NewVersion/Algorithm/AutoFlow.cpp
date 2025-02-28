@@ -354,6 +354,326 @@ void AutoFlow() {
             ending = intersections[endingRoad.int1Id];
         }
 
+        // Skip standard A* if different partitions
+        bool useHierarchical = (starting.partition >= 0 && ending.partition >= 0 && 
+                              starting.partition != ending.partition);
+        
+        if (useHierarchical) {
+            // Step 1: Find a high-level path between partitions using BFS
+            unordered_map<int, int> partitionPrev;
+            queue<int> partitionQueue;
+            unordered_set<int> visitedPartitions;
+            
+            partitionQueue.push(starting.partition);
+            visitedPartitions.insert(starting.partition);
+            
+            bool foundPath = false;
+            while (!partitionQueue.empty() && !foundPath) {
+                int currentPartition = partitionQueue.front();
+                partitionQueue.pop();
+                
+                if (currentPartition == ending.partition) {
+                    foundPath = true;
+                    break;
+                }
+                
+                // Explore neighboring partitions
+                for (int neighborPartition : partitionAdjList[currentPartition]) {
+                    if (visitedPartitions.count(neighborPartition) == 0) {
+                        visitedPartitions.insert(neighborPartition);
+                        partitionPrev[neighborPartition] = currentPartition;
+                        partitionQueue.push(neighborPartition);
+                    }
+                }
+            }
+            
+            if (foundPath) {
+                // Step 2: Build the sequence of partitions to visit
+                vector<int> partitionPath;
+                for (int p = ending.partition; p != starting.partition; p = partitionPrev[p]) {
+                    partitionPath.push_back(p);
+                }
+                partitionPath.push_back(starting.partition);
+                reverse(partitionPath.begin(), partitionPath.end());
+                
+                // Step 3: Find border nodes between consecutive partitions
+                vector<Intersection> fullPath;
+                Intersection currentLoc = starting;
+                fullPath.push_back(currentLoc);
+                
+                float currentTime = 0;
+                
+                // For each partition transition, find best path through partitions
+                for (size_t i = 0; i < partitionPath.size() - 1; i++) {
+                    int currentPartId = partitionPath[i];
+                    int nextPartId = partitionPath[i+1];
+                    
+                    // Find all border nodes between the two partitions
+                    vector<int> borderFromCurrent, borderToNext;
+                    
+                    for (auto& [id, node] : intersections) {
+                        if (node.partition == currentPartId) {
+                            for (int neighborId : node.connectingIntersectionIDs) {
+                                if (intersections[neighborId].partition == nextPartId) {
+                                    borderFromCurrent.push_back(id);
+                                    borderToNext.push_back(neighborId);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (!borderFromCurrent.empty()) {
+                        // Find best border crossing
+                        int bestFromIdx = 0;
+                        float bestScore = numeric_limits<float>::infinity();
+                        
+                        for (size_t j = 0; j < borderFromCurrent.size(); j++) {
+                            float score = heuristic(currentLoc, intersections[borderFromCurrent[j]]) + 
+                                        heuristic(intersections[borderToNext[j]], ending);
+                            if (score < bestScore) {
+                                bestScore = score;
+                                bestFromIdx = j;
+                            }
+                        }
+                        
+                        // Find path to border node (limited A*)
+                        unordered_set<int> allowedNodes;
+                        for (auto& [id, node] : intersections) {
+                            if (node.partition == currentPartId) {
+                                allowedNodes.insert(id);
+                            }
+                        }
+                        
+                        // Run A* within current partition
+                        priority_queue<PathNode> openNodes;
+                        unordered_map<int, float> gScore;
+                        unordered_set<int> closedNodes;
+                        unordered_map<int, shared_ptr<PathNode>> nodeMap;
+                        
+                        PathNode startNode(currentLoc);
+                        startNode.g = currentTime;
+                        startNode.h = heuristic(currentLoc, intersections[borderFromCurrent[bestFromIdx]]);
+                        startNode.f = startNode.g + startNode.h;
+                        
+                        auto startPtr = make_shared<PathNode>(startNode);
+                        openNodes.push(*startPtr);
+                        gScore[currentLoc.id] = currentTime;
+                        nodeMap[currentLoc.id] = startPtr;
+                        
+                        bool found = false;
+                        while (!openNodes.empty() && !found) {
+                            PathNode currentNode = openNodes.top();
+                            openNodes.pop();
+                            
+                            int currId = currentNode.intersection.id;
+                            
+                            if (closedNodes.count(currId)) continue;
+                            closedNodes.insert(currId);
+                            
+                            // Reached border node?
+                            if (currId == borderFromCurrent[bestFromIdx]) {
+                                found = true;
+                                
+                                // Reconstruct path segment 
+                                vector<Intersection> pathSegment;
+                                shared_ptr<PathNode> current = nodeMap[currId];
+                                currentTime = current->g;
+                                
+                                while (current != nullptr) {
+                                    pathSegment.push_back(current->intersection);
+                                    current = current->parent;
+                                }
+                                
+                                reverse(pathSegment.begin(), pathSegment.end());
+                                
+                                // Add path segment (skipping starting node to avoid duplicates)
+                                for (size_t j = 1; j < pathSegment.size(); j++) {
+                                    fullPath.push_back(pathSegment[j]);
+                                    
+                                    // Update reservation table between consecutive nodes
+                                    if (j > 1 || i > 0) {
+                                        int prevId = fullPath[fullPath.size() - 2].id;
+                                        int currId = fullPath[fullPath.size() - 1].id;
+                                        
+                                        Road& road = graph[prevId][currId];
+                                        float traversalTime = calculateTraversalTime(
+                                            road, fullPath[fullPath.size() - 2], fullPath[fullPath.size() - 1], 
+                                            currentTime, reservationTable[road.id], autoFlowPercentage
+                                        );
+                                        
+                                        lock_guard<mutex> lock(reservationTableMutex);
+                                        reservationTable[road.id].upd(
+                                            ceil(currentTime), 
+                                            ceil(currentTime + traversalTime), 
+                                            {1, true}
+                                        );
+                                        currentTime += traversalTime;
+                                    }
+                                }
+                                
+                                // Add the node from next partition
+                                fullPath.push_back(intersections[borderToNext[bestFromIdx]]);
+                                currentLoc = intersections[borderToNext[bestFromIdx]]; 
+                            }
+                            
+                            // Explore neighboring nodes (within same partition only)
+                            for (const auto& neighId : currentNode.intersection.connectingIntersectionIDs) {
+                                if (closedNodes.count(neighId) || allowedNodes.count(neighId) == 0) continue;
+                                
+                                const Intersection& neigh = intersections[neighId];
+                                float g = currentNode.g;
+                                
+                                Road& road = graph[currId][neighId];
+                                g += calculateTraversalTime(
+                                    road, currentNode.intersection, neigh,
+                                    currentNode.g, reservationTable[road.id], autoFlowPercentage
+                                );
+                                
+                                if (!gScore.count(neighId) || g < gScore[neighId]) {
+                                    gScore[neighId] = g;
+                                    
+                                    float h = heuristic(neigh, intersections[borderFromCurrent[bestFromIdx]]);
+                                    float f = g + h;
+                                    
+                                    auto neighPtr = make_shared<PathNode>(neigh);
+                                    neighPtr->parent = nodeMap[currId];
+                                    neighPtr->g = g;
+                                    neighPtr->h = h;
+                                    neighPtr->f = f;
+                                    
+                                    nodeMap[neighId] = neighPtr;
+                                    openNodes.push(*neighPtr);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Finally, find path from last border to destination
+                unordered_set<int> allowedNodes;
+                for (auto& [id, node] : intersections) {
+                    if (node.partition == ending.partition) {
+                        allowedNodes.insert(id);
+                    }
+                }
+                
+                // Run A* within final partition
+                priority_queue<PathNode> openNodes;
+                unordered_map<int, float> gScore;
+                unordered_set<int> closedNodes;
+                unordered_map<int, shared_ptr<PathNode>> nodeMap;
+                
+                PathNode startNode(currentLoc);
+                startNode.g = currentTime;
+                startNode.h = heuristic(currentLoc, ending);
+                startNode.f = startNode.g + startNode.h;
+                
+                auto startPtr = make_shared<PathNode>(startNode);
+                openNodes.push(*startPtr);
+                gScore[currentLoc.id] = currentTime;
+                nodeMap[currentLoc.id] = startPtr;
+                
+                bool found = false;
+                while (!openNodes.empty() && !found) {
+                    PathNode currentNode = openNodes.top();
+                    openNodes.pop();
+                    
+                    int currId = currentNode.intersection.id;
+                    
+                    if (closedNodes.count(currId)) continue;
+                    closedNodes.insert(currId);
+                    
+                    // Reached destination?
+                    if (currId == ending.id) {
+                        found = true;
+                        
+                        // Reconstruct path segment
+                        vector<Intersection> pathSegment;
+                        shared_ptr<PathNode> current = nodeMap[currId];
+                        
+                        while (current != nullptr) {
+                            pathSegment.push_back(current->intersection);
+                            current = current->parent;
+                        }
+                        
+                        reverse(pathSegment.begin(), pathSegment.end());
+                        
+                        // Add path segment (skipping starting node to avoid duplicates)
+                        for (size_t j = 1; j < pathSegment.size(); j++) {
+                            fullPath.push_back(pathSegment[j]);
+                            
+                            // Update reservation table
+                            int prevId = fullPath[fullPath.size() - 2].id;
+                            int currId = fullPath[fullPath.size() - 1].id;
+                            
+                            Road& road = graph[prevId][currId];
+                            float traversalTime = calculateTraversalTime(
+                                road, fullPath[fullPath.size() - 2], fullPath[fullPath.size() - 1], 
+                                currentTime, reservationTable[road.id], autoFlowPercentage
+                            );
+                            
+                            lock_guard<mutex> lock(reservationTableMutex);
+                            reservationTable[road.id].upd(
+                                ceil(currentTime), 
+                                ceil(currentTime + traversalTime), 
+                                {1, true}
+                            );
+                            currentTime += traversalTime;
+                        }
+                    }
+                    
+                    // Explore neighboring nodes (within same partition or destination)
+                    for (const auto& neighId : currentNode.intersection.connectingIntersectionIDs) {
+                        if (closedNodes.count(neighId) || (allowedNodes.count(neighId) == 0 && neighId != ending.id)) continue;
+                        
+                        const Intersection& neigh = intersections[neighId];
+                        float g = currentNode.g;
+                        
+                        Road& road = graph[currId][neighId];
+                        g += calculateTraversalTime(
+                            road, currentNode.intersection, neigh,
+                            currentNode.g, reservationTable[road.id], autoFlowPercentage
+                        );
+                        
+                        if (!gScore.count(neighId) || g < gScore[neighId]) {
+                            gScore[neighId] = g;
+                            
+                            float h = heuristic(neigh, ending);
+                            float f = g + h;
+                            
+                            auto neighPtr = make_shared<PathNode>(neigh);
+                            neighPtr->parent = nodeMap[currId];
+                            neighPtr->g = g;
+                            neighPtr->h = h;
+                            neighPtr->f = f;
+                            
+                            nodeMap[neighId] = neighPtr;
+                            openNodes.push(*neighPtr);
+                        }
+                    }
+                }
+                
+                // Store the full hierarchical path
+                lock_guard<mutex> lock(pathsMutex);
+                paths[vehicleId] = fullPath;
+                
+                auto endTime = chrono::high_resolution_clock::now();
+                auto duration = chrono::duration_cast<chrono::milliseconds>(endTime - startTime);
+                
+                {
+                    lock_guard<mutex> lock(coutMutex);
+                    cout << "Vehicle " << vehicleId << ": Hierarchical path found through " 
+                         << partitionPath.size() << " partitions in " 
+                         << duration.count() << "ms with " << fullPath.size() << " nodes" << endl;
+                }
+                
+                // We've completed hierarchical routing - return
+                return;
+            }
+        }
+        
+        // Fall back to standard A* if hierarchical routing failed or wasn't appropriate
         // A*
         PathNode startNode(starting);
         PathNode endNode(ending);
@@ -387,8 +707,7 @@ void AutoFlow() {
             int currentId = currentNode.intersection.id;
             
             // If we've already processed this node with a better path, skip it
-            if (closedNodes.find(currentId) != closedNodes.end())
-                continue;
+            if (closedNodes.count(currentId)) continue;
                 
             // Add to closed set
             closedNodes.insert(currentId);
@@ -414,25 +733,23 @@ void AutoFlow() {
                         int prevId = prev->intersection.id;
                         
                         // Find the road between the two intersections
-                        if (graph.count(currentId) && graph[currentId].count(prevId)) {
-                            Road& road = graph[currentId][prevId];
-                            float traversalTime = calculateTraversalTime(
-                                road, current->intersection, prev->intersection, 
-                                arrivalTime, reservationTable[road.id], autoFlowPercentage
+                        Road& road = graph[currentId][prevId];
+                        float traversalTime = calculateTraversalTime(
+                            road, current->intersection, prev->intersection, 
+                            arrivalTime, reservationTable[road.id], autoFlowPercentage
+                        );
+                        
+                        // Update reservation table (with mutex for thread safety)
+                        {
+                            lock_guard<mutex> lock(reservationTableMutex);
+                            reservationTable[road.id].upd(
+                                ceil(arrivalTime), 
+                                ceil(arrivalTime + traversalTime), 
+                                {1, true}
                             );
-                            
-                            // Update reservation table (with mutex for thread safety)
-                            {
-                                lock_guard<mutex> lock(reservationTableMutex);
-                                reservationTable[road.id].upd(
-                                    ceil(arrivalTime), 
-                                    ceil(arrivalTime + traversalTime), 
-                                    {1, true}
-                                );
-                            }
-                            
-                            arrivalTime += traversalTime;
                         }
+                        
+                        arrivalTime += traversalTime;
                     }
                     
                     prev = current;
@@ -453,29 +770,21 @@ void AutoFlow() {
             // Expand neighboring nodes
             for (const auto& neighId : currentNode.intersection.connectingIntersectionIDs) {
                 // Skip if already closed
-                if (closedNodes.find(neighId) != closedNodes.end())
-                    continue;
+                if (closedNodes.count(neighId)) continue;
                 
                 const Intersection& neigh = intersections[neighId];
                 
                 // Calculate g score for this path
                 float g = currentNode.g;
                 
-                // Add cost for this edge/road
-                if (graph.count(currentId) && graph[currentId].count(neighId)) {
-                    Road& road = graph[currentId][neighId];
-                    g += calculateTraversalTime(
-                        road,
-                        currentNode.intersection, neigh,
-                        currentNode.g, 
-                        reservationTable[road.id],
-                        autoFlowPercentage
-                    );
-                } else {
-                    // No direct road found, use fallback cost
-                    g += sqrt(pow(currentNode.intersection.x - neigh.x, 2) + 
-                             pow(currentNode.intersection.y - neigh.y, 2)) / avgSpeed;
-                }
+                Road& road = graph[currentId][neighId];
+                g += calculateTraversalTime(
+                    road,
+                    currentNode.intersection, neigh,
+                    currentNode.g, 
+                    reservationTable[road.id],
+                    autoFlowPercentage
+                );
                 
                 // If we found a better path to this node
                 if (!gScore.count(neighId) || g < gScore[neighId]) {
