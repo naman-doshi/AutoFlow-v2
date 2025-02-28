@@ -9,9 +9,9 @@ using namespace std;
 #include <atomic>
 #include <future>
 #include <chrono>
-#pragma GCC target ("avx2")
-#pragma GCC optimization ("O3")
-#pragma GCC optimization ("unroll-loops")
+// #pragma GCC target ("avx2")
+// #pragma GCC optimization ("O3")
+// #pragma GCC optimization ("unroll-loops")
 
 #define rep(i, a, b) for(int i = a; i < (b); ++i)
 
@@ -438,7 +438,83 @@ struct PathNodeCompare {
     }
 };
 
-// Update AutoFlow to use the enhanced pathfinder
+// Add work-stealing implementation before AutoFlow function
+class WorkStealingQueue {
+private:
+    queue<pair<int, Vehicle>> tasks;
+    mutex queueMutex;
+    condition_variable cv;
+    atomic<bool> done{false};
+    atomic<int> activeThreads{0};
+
+public:
+    // Add a batch of tasks to the queue
+    void addTasks(const vector<pair<int, Vehicle>>& newTasks) {
+        lock_guard<mutex> lock(queueMutex);
+        for (const auto& task : newTasks) {
+            tasks.push(task);
+        }
+        cv.notify_all();
+    }
+
+    // Try to get a task from the queue
+    optional<pair<int, Vehicle>> getTask() {
+        unique_lock<mutex> lock(queueMutex);
+        if (!tasks.empty()) {
+            auto task = tasks.front();
+            tasks.pop();
+            return task;
+        }
+        return nullopt;
+    }
+
+    // Wait for a task, with timeout for work stealing
+    optional<pair<int, Vehicle>> waitForTask(int timeoutMs) {
+        unique_lock<mutex> lock(queueMutex);
+        activeThreads++;
+        
+        // Wait until timeout, a task becomes available, or we're done
+        auto success = cv.wait_for(lock, chrono::milliseconds(timeoutMs), 
+            [this]() { return !tasks.empty() || done; });
+        
+        activeThreads--;
+        
+        if (success && !tasks.empty()) {
+            auto task = tasks.front();
+            tasks.pop();
+            return task;
+        }
+        return nullopt;
+    }
+
+    // Signal that no more tasks will be added
+    void setDone() {
+        done = true;
+        cv.notify_all();
+    }
+
+    // Check if there might be more work to do
+    bool isDone() {
+        lock_guard<mutex> lock(queueMutex);
+        return done && tasks.empty() && activeThreads == 0;
+    }
+
+    // Get number of tasks waiting
+    size_t size() {
+        lock_guard<mutex> lock(queueMutex);
+        return tasks.size();
+    }
+};
+
+// Add a struct to hold the reservation updates before the AutoFlow function
+struct ReservationUpdate {
+    int roadId;
+    int startTime;
+    int endTime;
+    int value;
+};
+
+// Update AutoFlow to use batched reservation updates
 void AutoFlow() {
     float autoFlowPercentage = 0.9999f;
     
@@ -474,14 +550,20 @@ void AutoFlow() {
     
     // Initialize pathfinding results storage
     unordered_map<int, vector<Intersection>> paths;
-
     
     // Thread pool configuration
     const int CPU_THREADS = min(16, (int)thread::hardware_concurrency());
-    cout << "Starting enhanced pathfinding with " << CPU_THREADS << " threads..." << endl;
+    cout << "Starting enhanced pathfinding with " << CPU_THREADS << " threads and work stealing..." << endl;
+    
+    // Work stealing queue
+    WorkStealingQueue workQueue;
+    
+    // Add all vehicles to the work queue
+    workQueue.addTasks(vehicleVector);
     
     // Function to process a single vehicle's path
-    auto processVehiclePath = [&](int vehicleId, const Vehicle& vehicle) {
+    auto processVehiclePath = [&](int vehicleId, const Vehicle& vehicle, 
+                                  vector<ReservationUpdate>& localUpdates) {
         auto startTime = chrono::high_resolution_clock::now();
         
         // Determine starting and ending intersections
@@ -638,7 +720,7 @@ void AutoFlow() {
                                 for (size_t j = 1; j < pathSegment.size(); j++) {
                                     fullPath.push_back(pathSegment[j]);
                                     
-                                    // Update reservation table between consecutive nodes
+                                    // Update reservation table between consecutive nodes - BATCH THIS
                                     if (j > 1 || i > 0) {
                                         int prevId = fullPath[fullPath.size() - 2].id;
                                         int currId = fullPath[fullPath.size() - 1].id;
@@ -649,12 +731,14 @@ void AutoFlow() {
                                             currentTime, reservationTable[road.id], autoFlowPercentage
                                         );
                                         
-                                        lock_guard<mutex> lock(reservationTableMutex);
-                                        reservationTable[road.id].upd(
-                                            ceil(currentTime), 
-                                            ceil(currentTime + traversalTime), 
-                                            {1, true}
-                                        );
+                                        // Add to local updates instead of locking
+                                        localUpdates.push_back({
+                                            road.id,
+                                            static_cast<int>(ceil(currentTime)),
+                                            static_cast<int>(ceil(currentTime + traversalTime)),
+                                            1
+                                        });
+                                        
                                         currentTime += traversalTime;
                                     }
                                 }
@@ -690,7 +774,7 @@ void AutoFlow() {
                                     neighPtr->f = f;
                                     
                                     nodeMap[neighId] = neighPtr;
-                                    openNodes.update(*neighPtr); // Use update instead of push
+                                    openNodes.update(*neighPtr);
                                 }
                             }
                         }
@@ -750,7 +834,7 @@ void AutoFlow() {
                         for (size_t j = 1; j < pathSegment.size(); j++) {
                             fullPath.push_back(pathSegment[j]);
                             
-                            // Update reservation table
+                            // Update reservation table - BATCH THIS
                             int prevId = fullPath[fullPath.size() - 2].id;
                             int currId = fullPath[fullPath.size() - 1].id;
                             
@@ -760,12 +844,14 @@ void AutoFlow() {
                                 currentTime, reservationTable[road.id], autoFlowPercentage
                             );
                             
-                            lock_guard<mutex> lock(reservationTableMutex);
-                            reservationTable[road.id].upd(
-                                ceil(currentTime), 
-                                ceil(currentTime + traversalTime), 
-                                {1, true}
-                            );
+                            // Add to local updates instead of locking
+                            localUpdates.push_back({
+                                road.id,
+                                static_cast<int>(ceil(currentTime)),
+                                static_cast<int>(ceil(currentTime + traversalTime)),
+                                1
+                            });
+                            
                             currentTime += traversalTime;
                         }
                     }
@@ -796,7 +882,7 @@ void AutoFlow() {
                             neighPtr->f = f;
                             
                             nodeMap[neighId] = neighPtr;
-                            openNodes.update(*neighPtr); // Use update instead of push
+                            openNodes.update(*neighPtr);
                         }
                     }
                 }
@@ -821,7 +907,6 @@ void AutoFlow() {
         }
         
         // Fall back to standard A* if hierarchical routing failed or wasn't appropriate
-        // A*
         PathNode startNode(starting);
         PathNode endNode(ending);
         
@@ -874,7 +959,7 @@ void AutoFlow() {
                 while (current != nullptr) {
                     path.push_back(current->intersection);
                     
-                    // Update reservation table for each road segment
+                    // Update reservation table for each road segment - BATCH THIS
                     if (prev != nullptr) {
                         int currentId = current->intersection.id;
                         int prevId = prev->intersection.id;
@@ -886,15 +971,13 @@ void AutoFlow() {
                             arrivalTime, reservationTable[road.id], autoFlowPercentage
                         );
                         
-                        // Update reservation table (with mutex for thread safety)
-                        {
-                            lock_guard<mutex> lock(reservationTableMutex);
-                            reservationTable[road.id].upd(
-                                ceil(arrivalTime), 
-                                ceil(arrivalTime + traversalTime), 
-                                {1, true}
-                            );
-                        }
+                        // Add to local updates instead of locking
+                        localUpdates.push_back({
+                            road.id,
+                            static_cast<int>(ceil(arrivalTime)),
+                            static_cast<int>(ceil(arrivalTime + traversalTime)),
+                            1
+                        });
                         
                         arrivalTime += traversalTime;
                     }
@@ -947,7 +1030,7 @@ void AutoFlow() {
                     neighPtr->f = f;
                     
                     nodeMap[neighId] = neighPtr;
-                    openNodes.update(*neighPtr); // Use update instead of push
+                    openNodes.update(*neighPtr);
                 }
             }
         }
@@ -967,31 +1050,107 @@ void AutoFlow() {
         }
     };
     
-    // Process vehicles in parallel batches
+    // Process vehicles using work stealing
     atomic<int> completedVehicles(0);
     const size_t totalVehicles = vehicleVector.size();
     
-    // Create processing threads
+    // Function to apply batched updates to the global reservation table
+    auto applyReservationUpdates = [&](const vector<ReservationUpdate>& updates) {
+        lock_guard<mutex> lock(reservationTableMutex);
+        for (const auto& update : updates) {
+            reservationTable[update.roadId].upd(update.startTime, update.endTime, {update.value, true});
+        }
+    };
+    
+    // Define the batch size for reservation updates
+    const int BATCH_UPDATE_SIZE = 50; // Tune this value based on your specific workload
+    
+    // Create processing threads with work stealing and batched reservation updates
     vector<thread> threads;
     for (int t = 0; t < CPU_THREADS; t++) {
         threads.emplace_back([&, t]() {
-            for (size_t idx = t; idx < totalVehicles; idx += CPU_THREADS) {
-                int vehicleId = vehicleVector[idx].first;
-                const Vehicle& vehicle = vehicleVector[idx].second;
+            bool idle = false;
+            vector<ReservationUpdate> localUpdates;
+            localUpdates.reserve(BATCH_UPDATE_SIZE * 2); // Pre-allocate to avoid reallocations
+            
+            while (true) {
+                // Try to get a task
+                optional<pair<int, Vehicle>> task;
+                
+                if (idle) {
+                    // If we were idle before, actively try to steal work
+                    task = workQueue.getTask();
+                    
+                    if (!task && workQueue.isDone()) {
+                        // Apply any remaining updates before exiting
+                        if (!localUpdates.empty()) {
+                            applyReservationUpdates(localUpdates);
+                            localUpdates.clear();
+                        }
+                        // No more work to do, exit the thread
+                        break;
+                    } else if (!task) {
+                        // No tasks available right now, wait a bit before trying again
+                        // This is a good time to apply any accumulated updates
+                        if (!localUpdates.empty()) {
+                            applyReservationUpdates(localUpdates);
+                            localUpdates.clear();
+                        }
+                        this_thread::sleep_for(chrono::milliseconds(1));
+                        continue;
+                    }
+                    
+                    idle = false;
+                } else {
+                    // Wait for a task with timeout
+                    task = workQueue.waitForTask(10); // 10ms timeout
+                    
+                    if (!task) {
+                        if (workQueue.isDone()) {
+                            // Apply any remaining updates before exiting
+                            if (!localUpdates.empty()) {
+                                applyReservationUpdates(localUpdates);
+                                localUpdates.clear();
+                            }
+                            // No more work to do, exit the thread
+                            break;
+                        }
+                        // Couldn't get a task, go into idle/stealing mode
+                        // This is a good time to apply any accumulated updates
+                        if (!localUpdates.empty()) {
+                            applyReservationUpdates(localUpdates);
+                            localUpdates.clear();
+                        }
+                        idle = true;
+                        continue;
+                    }
+                }
                 
                 // Process this vehicle
-                processVehiclePath(vehicleId, vehicle);
+                int vehicleId = task->first;
+                const Vehicle& vehicle = task->second;
+                processVehiclePath(vehicleId, vehicle, localUpdates);
+                
+                // Apply updates if we've accumulated enough
+                if (localUpdates.size() >= BATCH_UPDATE_SIZE) {
+                    applyReservationUpdates(localUpdates);
+                    localUpdates.clear();
+                }
                 
                 // Update progress
                 int completed = ++completedVehicles;
                 if (completed % 100 == 0 || completed == totalVehicles) {
                     lock_guard<mutex> lock(coutMutex);
                     cout << "Completed " << completed << "/" << totalVehicles 
-                         << " vehicles (" << (completed * 100 / totalVehicles) << "%)" << endl;
+                         << " vehicles (" << (completed * 100 / totalVehicles) << "%), "
+                         << workQueue.size() << " tasks remaining" << endl;
                 }
             }
         });
     }
+    
+    // Signal that no more tasks will be added
+    workQueue.setDone();
     
     // Wait for all threads to finish
     for (auto& t : threads) {
