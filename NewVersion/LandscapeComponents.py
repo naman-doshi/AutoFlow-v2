@@ -879,6 +879,14 @@ class Landscape:
         #             print("Deleting virtual intersection")
         #             virtual.delete(self)
     
+    def cleanGraph(self):
+        newGraph = defaultdict(dict)
+        for i, j in self.GRAPH.items():
+            for k, v in j.items():
+                if v != None:
+                    newGraph[i][k] = v
+        self.GRAPH = newGraph
+    
     
     def gen(self):
         '''
@@ -895,6 +903,7 @@ class Landscape:
             intersection.create_traffic_light(self)
         for road in self.roads:
             road.populatePositions(self)
+        self.cleanGraph()
         # for id, intersection in self.intersections.items():
         #     self.connectMultiIntersection(intersection)
 
@@ -1009,8 +1018,10 @@ class Landscape:
             for road in self.roads:
                 road.populatePositions(self)
             
-            for id, intersection in self.intersections.items():
-                self.connectMultiIntersection(intersection)
+            self.cleanGraph()
+            
+            # for id, intersection in self.intersections.items():
+            #     self.connectMultiIntersection(intersection)
 
         print(f"Landscape loaded successfully from {path}.")
             

@@ -37,6 +37,8 @@ class Vehicle(ABC):
         self.ending = []
         self.startingRoad = 0
         self.endingRoad = 0
+        self.startingActualRoad = None
+        self.endingActualRoad = None
 
     def setRoutingSystem(self, systemID: int):
         self.routingSystem = Vehicle.routingSystems[systemID]

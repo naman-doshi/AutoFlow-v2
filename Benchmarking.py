@@ -3,14 +3,14 @@ from NewVersion.AutoFlow import *
 import random
 import time
 
-toTest = 5
+toTest = 1000
 
-landscape = Landscape(500, 
-                      500,
+landscape = Landscape(5000, 
+                      5000,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
 landscape.generate()
-landscape.load("NewVersion/benchmark.txt")
+# landscape.load("NewVersion/benchmark.txt")
 
 print("Landscape loaded")
 
@@ -19,8 +19,9 @@ allEndingPositions = []
 autoFlowVehicles = []
 
 for road in landscape.roads:
-    allStartingPositions += [road.id] + road.availablePositions()
-    allEndingPositions += [road.id] + road.availablePositions()
+    blah = [[road] + i for i in road.availablePositions()]
+    allStartingPositions += blah
+    allEndingPositions += blah
 
 # start timer
 start = time.time()
@@ -30,11 +31,15 @@ for i in range(toTest):
     vehicle.setRoutingSystem(1)
     autoFlowVehicles.append(vehicle)
     startPos = random.choice(allStartingPositions)
-    vehicle.startingRoadId = startPos[0]
+    # print(len(startPos))
+    vehicle.startingActualRoad = startPos[0]
+    vehicle.startingRoadId = startPos[0].id
     allStartingPositions.remove(startPos)
     vehicle.starting = startPos[1:]
+    
     endPos = random.choice(allEndingPositions)
-    vehicle.endingRoadId = endPos[0]
+    vehicle.endingActualRoad = endPos[0]
+    vehicle.endingRoadId = endPos[0].id
     allEndingPositions.remove(endPos)
     vehicle.ending = endPos[1:]
 

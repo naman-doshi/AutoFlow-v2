@@ -1,4 +1,11 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <vector>
+#include <unordered_map>
+#include <queue>
+#include <set>
+#include <cmath>
+#include <algorithm>
+
 using namespace std;
 
 class Intersection {
@@ -10,6 +17,7 @@ public:
     float y;
     int roadID;
     vector<int> connectingIntersectionIDs;
+    int partition = -1; // Initialize partition to -1 (unassigned)
 };
 
 class Road {
@@ -28,8 +36,8 @@ public:
 class Vehicle {
 public:
     int id;
-    Road road;
-    Road endingRoad;
+    int startingRoadId;
+    int endingRoadId;
     float position;
     vector<double> starting, ending;
 };

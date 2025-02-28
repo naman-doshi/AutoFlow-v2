@@ -1,19 +1,33 @@
 #include <bits/stdc++.h>
 using namespace std;
 #include "Landscape.cpp"
+#include "Partition.cpp"
 #include <chrono>
+#include <memory>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <future>
+#include <chrono>
+#pragma GCC target ("avx2")
+#pragma GCC optimization ("O3")
+#pragma GCC optimization ("unroll-loops")
 
 #define rep(i, a, b) for(int i = a; i < (b); ++i)
 
+mutex reservationTableMutex;
+mutex pathsMutex;
+mutex coutMutex;
+
 // todo:
-// 1. custom heuristic
 // 2. graph partitioning
-// 3. treat every lane as its own road (more accurate)
 // 4. make traffic light timings more accurate using more info
 
 unordered_map<int, Intersection> intersections;
 unordered_map<int, Road> roads;
 unordered_map<int, Vehicle> vehicles;
+vector<pair<int, Vehicle>> vehicleVector;
+unordered_map<int, unordered_map<int, Road>> graph;
 
 struct Lazy {
     int v;
@@ -85,12 +99,12 @@ template<class T, class U, int SZ> struct LazySeg {
 class PathNode {
 public:
     Intersection intersection;
-    PathNode* parent;
+    shared_ptr<PathNode> parent;
     float g;
     float h;
     float f;
 
-    PathNode(Intersection intersection, PathNode* parent = nullptr) {
+    PathNode(Intersection intersection, shared_ptr<PathNode> parent = nullptr) {
         this->intersection = intersection;
         this->parent = parent;
         this->g = 0;
@@ -111,9 +125,26 @@ public:
     }
 };
 
-float heuristic(Intersection& a, Intersection& b) {
-    // euclidean
-    return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2)) / 28;
+float avgIntersectionDelay = 2.0f;
+float totalIntersectionDelays = 0;
+float avgSpeed = 0;
+float avgSegmentLength = 0;
+
+// Enhanced heuristic that takes partitions into account
+float heuristic(const Intersection& a, const Intersection& b) {
+    // Euclidean distance
+    float distance = sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2));
+    
+    // Add partition-crossing penalty if intersections are in different partitions
+    float partitionPenalty = 0.0f;
+    if (a.partition != b.partition && a.partition >= 0 && b.partition >= 0) {
+        partitionPenalty = avgIntersectionDelay * 0.5f; // Add delay when crossing partitions
+    }
+    
+    // Estimate number of intersections in path (rough approximation)
+    float estimatedIntersections = distance / avgSegmentLength;
+    
+    return distance / avgSpeed + (avgIntersectionDelay/totalIntersectionDelays) * estimatedIntersections + partitionPenalty;
 }
 
 void readData() {
@@ -133,10 +164,10 @@ void readData() {
         int numPositions;
         int int1Id, int2Id;
         cin >> road.id >> road.length >> road.speedLimit >> road.capacity >> int1Id >> int2Id >> road.traversalTime >> road.laneCount;
+        avgSpeed += road.speedLimit;
+        avgSegmentLength += road.length;
         road.int1Id = int1Id;
         road.int2Id = int2Id;
-        intersections[int1Id].roadID = road.id;
-        intersections[int2Id].roadID = road.id;
         intersections[int1Id].connectingIntersectionIDs.push_back(int2Id);
         intersections[int2Id].connectingIntersectionIDs.push_back(int1Id);
         cin >> numPositions;
@@ -149,19 +180,36 @@ void readData() {
         roads[road.id] = road;
     }
 
+    avgSpeed /= numRoads;
+    avgSegmentLength /= numRoads;
+
+    int numGraphEntries;
+    cin >> numGraphEntries;
+    for (int i = 0; i < numGraphEntries; ++i) {
+        int num2;
+        cin >> num2;
+        for (int j = 0; j < num2; ++j) {
+            int int1Id, int2Id, roadId;
+            cin >> int1Id >> int2Id >> roadId;
+            graph[int1Id][int2Id] = roads[roadId];
+        }
+    }
+
 
     int numVehicles;
     cin >> numVehicles;
     for (int i = 0; i < numVehicles; ++i) {
         Vehicle vehicle;
-        int roadId, startingIntersectionId, endingIntersectionId;
+        int roadId;
         double s1, s2, s3, e1, e2, e3;
-        cin >> vehicle.id >> roadId >> vehicle.position >> s1 >> s2 >> s3 >> e1 >> e2 >> e3;
-        vehicle.road = roads[roadId];
-        
+        int startingRoadId, endingRoadId;
+        cin >> vehicle.id >> startingRoadId >> endingRoadId >> s1 >> s2 >> s3 >> e1 >> e2 >> e3;
+        vehicle.startingRoadId = startingRoadId;
+        vehicle.endingRoadId = endingRoadId;
         vehicle.starting = {s1, s2, s3};
         vehicle.ending = {e1, e2, e3};
         vehicles[vehicle.id] = vehicle;
+        vehicleVector.push_back({vehicle.id, vehicle});
     }
 
     cout << "Loaded " << intersections.size() << " intersections, "
@@ -169,193 +217,344 @@ void readData() {
          << vehicles.size() << " vehicles." << endl;
 }
 
-void AutoFlow() {
+float calculateTraversalTime(const Road& road, const Intersection& current, 
+  const Intersection& next, float arrivalTime, 
+  LazySeg<Node, Lazy, 1 << 15>& reservationTable, 
+  float autoFlowPercentage) {
+  int currentTime = max((int)ceil(arrivalTime), 0);
 
-  float autoFlowPercentage = 0.9999f;
-  
-  LazySeg<Node, Lazy, 1 << 15> tree;
-  tree.init({0, 0}, {0, true});
-  for (int i = 0; i < 1 << 15; i++) {
-    tree[i] = {0, 0};
-  }
-  tree.build();
+    // Get current congestion level
+    float congestion = reservationTable.query(currentTime, currentTime).sum / autoFlowPercentage;
 
-  unordered_map<int, LazySeg<Node, Lazy, 1 << 15>> reservationTable;
-  for (auto& [id, road] : roads) {
-    reservationTable[id] = tree;
-  }
-
-  unordered_map<int, float> defaultG;
-  for (auto& [id, vi] : intersections) {
-    defaultG[vi.id] = 1e9;
-  }
-  
-  for (auto& [id, vehicle] : vehicles) {
-    int traversalTime = ceil(vehicle.road.traversalTime * (1 - vehicle.position));
-    reservationTable[vehicle.road.id].upd(0, traversalTime, {1, true});
-  }
-
-  unordered_map<int, vector<Intersection>> paths;
-
-
-  for (auto& [id, vehicle] : vehicles) {
-
-    auto startTime = chrono::high_resolution_clock::now();
-
-    priority_queue<PathNode> openNodes;
-    set<int> openSet, closedSet;
-
-    Intersection starting;
-    if (vehicle.starting[1] == 1) {
-      starting = intersections[vehicle.road.int2Id];
-    } else {
-      starting = intersections[vehicle.road.int1Id];
-    }
-    
-    
-    
-    
-    
-    PathNode start(vehicle.starting);
-    PathNode end(vehicle.ending);
-    unordered_map<int, float> gScore = defaultG;
-    gScore[start.intersection->id] = 0;
-    openNodes.push(start);
-    openSet.insert(start.intersection->id);
-    vector<VirtualIntersection> path;
-
-    while (!openNodes.empty()) {
-      PathNode current = openNodes.top();
-      //cout << current.intersection->id << endl;
-      //cout << openNodes.size() << endl;
-      openNodes.pop();
-      openSet.erase(current.intersection->id);
-      closedSet.insert(current.intersection->id);
-
-      if ((*current.intersection).road == (*end.intersection).road) {
-
-        cout << "Path found" << endl;
-        
-        vector<PathNode> temppath;
-        temppath.push_back(current);
-        while (current.parent != nullptr) {
-          current = *current.parent;
-          temppath.push_back(current);
-        }
-        // double check
-        temppath.pop_back();
-        reverse(temppath.begin(), temppath.end());
-
-        // update restable
-        for (int i = 0; i < temppath.size() - 1; i++) {
-          int curTime = (int)temppath[i].g;
-          int nextTime = (int)temppath[i + 1].g;
-          int roadID = temppath[i].intersection->road->id;
-          reservationTable[roadID].upd(curTime, nextTime, {1, true});
-          path.push_back(*temppath[i+1].intersection);
-        }
-
-        break;
-        
-      }
-
-      //cout << "hi" << endl;
-
-      //cout << current.intersection->road->associatedVirtualIntersections.size() << endl;
-      for (auto avi : current.intersection->road->associatedVirtualIntersections) {
-        //cout << "Checking avi " << avi->id << endl;
-        Intersection nodeNeeded;
-        if (current.intersection->direction == 1) {
-          nodeNeeded = *current.intersection->road->int2;
+    // Wait time due to congestion (binary search for earliest available slot)
+    int l = currentTime + 1;
+    int r = 1 << 15;
+    while (l < r) {
+        int m = (l + r) / 2;
+        if (reservationTable.query(currentTime, m).mn < autoFlowPercentage * road.capacity) {
+            r = m;
         } else {
-          nodeNeeded = *current.intersection->road->int1;
+            l = m + 1;
         }
+    }
+    float waitTime = r - currentTime;
 
-        if (avi->correspondingRealIntersection->id != nodeNeeded.id || avi->direction != current.intersection->direction) {
-          continue;
+    // Base travel time (adjusted for congestion)
+    // Use a more sophisticated model that considers actual vehicle density 
+    float densityFactor = min(1.0f, congestion / (road.capacity * autoFlowPercentage));
+    float speedReduction = 1.0f - 0.75f * densityFactor;  // Speed reduces up to 75% in heavy traffic
+    float baseTravelTime = road.length / (road.speedLimit * speedReduction);
+
+    // Traffic light delay
+    float cycleTime = next.trafficLightDuration * next.roadCount;
+    // Probability of hitting a red light increases with congestion
+    float trafficLightDelay = cycleTime * 0.5f * (1.0f + 0.5f * densityFactor);
+
+    avgIntersectionDelay += trafficLightDelay;
+    totalIntersectionDelays += 1;
+
+    return waitTime + baseTravelTime + trafficLightDelay;
+}
+
+// Run graph partitioning and set up data structures before pathfinding
+pair<vector<unordered_set<int>>, vector<vector<int>>> partitionGraph() {
+    // dynamic partition depth
+    int partitioningDepth = log2(intersections.size() / 200);
+    partitioningDepth = max(1, partitioningDepth); // Ensure at least one level
+    int minPartitionSize = 200;
+    
+    cout << "Starting graph partitioning with depth=" << partitioningDepth 
+         << " and minSize=" << minPartitionSize << "..." << endl;
+    
+    InertialFlowPartitioner partitioner(intersections, roads);
+    auto partitions = partitioner.recursivePartition(partitioningDepth, minPartitionSize);
+    
+    // Assign partition IDs to all intersections
+    partitioner.assignPartitionIDs(intersections, partitions);
+    
+    vector<vector<int>> partitionAdjacencyList;
+    vector<int> crossPartitionEdgeCounts;
+    buildPartitionGraph(roads, partitions, partitionAdjacencyList, crossPartitionEdgeCounts);
+    
+    cout << "Created " << partitions.size() << " partitions" << endl;
+    
+    // Print partition statistics
+    int intersectionsWithPartitions = 0;
+    for (const auto& [id, intersection] : intersections) {
+        if (intersection.partition >= 0) {
+            intersectionsWithPartitions++;
         }
+    }
+    cout << "Total intersections with assigned partitions: " 
+         << intersectionsWithPartitions << "/" << intersections.size() << endl;
+    
+    return {partitions, partitionAdjacencyList};
+}
 
-        for (auto neighbour : avi->connectingVirtualInts) {
+// Update AutoFlow to use the enhanced pathfinder
+void AutoFlow() {
+    float autoFlowPercentage = 0.9999f;
+    
+    // Run partitioning before pathfinding
+    cout << "Starting graph partitioning..." << endl;
+    auto [partitions, partitionAdjList] = partitionGraph();
+    cout << "Partitioning completed" << endl;
+    
+    // Initialize the segment tree for reservations
+    LazySeg<Node, Lazy, 1 << 15> tree;
+    tree.init({0, 0}, {0, true});
+    for (int i = 0; i < 1 << 15; i++) {
+        tree[i] = {0, 0};
+    }
+    tree.build();
 
-          //cout << "Checking neighbour " << neighbour->id << endl;
-
-          if (closedSet.count(neighbour->id)) {
-            //cout << neighbour->id << " found" << endl;
-            continue;
-          }
-
-          PathNode intermediary(neighbour, make_shared<PathNode>(current));
-          PathNode neighNode(neighbour, make_shared<PathNode>(intermediary));
-
-          neighNode.intersection->road->associatedVirtualIntersections.clear();
-
-          for (auto avi2 : neighNode.intersection->road->associatedVirtualIntersectionIds) {
-            neighNode.intersection->road->associatedVirtualIntersections.push_back(make_shared<VirtualIntersection>(virtualIntersections[avi2]));
-          }
-
-          
-          Road road = *current.intersection->road;
-          int currentTime = max((int)ceil(current.g), 0);
-          float roadLeavingTime = currentTime;
-          float congestion = reservationTable[road.id].query(roadLeavingTime, roadLeavingTime).sum / autoFlowPercentage;
-
-          // binary search on the first index such that the range min is < capacity (log2(x)^2 complexity)
-          int l = currentTime + 1;
-          int r = 1 << 15;
-          LazySeg tree = reservationTable[road.id];
-          while (l < r) {
-            int m = (l + r) / 2;
-            if (tree.query(currentTime, m).mn < autoFlowPercentage * road.capacity) {
-              r = m;
-            } else {
-              l = m + 1;
-            }
-          }
-          roadLeavingTime = r;
-
-          roadLeavingTime += max(0.001f, (road.length - 5 * congestion / road.laneCount) / road.speedLimit);
-
-          Intersection rInt = *neighbour->correspondingRealIntersection;
-          float cycleTime = rInt.trafficLightDuration * rInt.roadCount;
-          roadLeavingTime += cycleTime * congestion / (road.laneCount * 5);
-
-          neighNode.g = ceil(roadLeavingTime);
-          neighNode.h = heuristic(*neighbour, *end.intersection);
-          neighNode.f = neighNode.g + neighNode.h;
-          intermediary.g = neighNode.g;
-          intermediary.h = heuristic(*avi, *neighbour);
-          intermediary.f = intermediary.g + intermediary.h;
-
-          //cout << neighNode.g << " " << neighNode.h << " " << neighNode.f << endl;
-
-          if (!openSet.count(neighbour->id)) {
-            openNodes.push(neighNode);
-            openSet.insert(neighbour->id);
-          } else if (gScore[neighNode.intersection->id] < neighNode.g) {
-            continue;
-          }
-
-          gScore[neighNode.intersection->id] = neighNode.g;
-          gScore[intermediary.intersection->id] = intermediary.g;
-
-        }
-
-
-      }
-
-      
+    unordered_map<int, LazySeg<Node, Lazy, 1 << 15>> reservationTable;
+    for (auto& [id, road] : roads) {
+        reservationTable[id] = tree;
     }
 
-    paths[vehicle.id] = path;
+    unordered_map<int, float> defaultG;
+    for (auto& [id, vi] : intersections) {
+        defaultG[vi.id] = 1e9;
+    }
+    
+    // Initialize vehicles in the reservation system
+    for (auto& [id, vehicle] : vehicles) {
+        Road startingRoad = roads[vehicle.startingRoadId];
+        int traversalTime = ceil(startingRoad.traversalTime * (1 - vehicle.position));
+        reservationTable[startingRoad.id].upd(0, traversalTime, {1, true});
+    }
+    
+    // Initialize pathfinding results storage
+    unordered_map<int, vector<Intersection>> paths;
 
-    auto endTime = chrono::high_resolution_clock::now();
-    auto duration = chrono::duration_cast<chrono::milliseconds>(endTime - startTime);
-    cout << "Vehicle " << vehicle.id << " path found in " << duration.count() << " ms" << endl;
-    cout << path.size() << endl;
+    
+    // Thread pool configuration
+    const int CPU_THREADS = min(16, (int)thread::hardware_concurrency());
+    cout << "Starting enhanced pathfinding with " << CPU_THREADS << " threads..." << endl;
+    
+    // Function to process a single vehicle's path
+    auto processVehiclePath = [&](int vehicleId, const Vehicle& vehicle) {
+        auto startTime = chrono::high_resolution_clock::now();
+        
+        // Determine starting and ending intersections
+        Intersection starting;
+        Road startingRoad = roads[vehicle.startingRoadId];
+        if (vehicle.starting[1] == 1) {
+            starting = intersections[startingRoad.int2Id];
+        } else {
+            starting = intersections[startingRoad.int1Id];
+        }
 
-  }
+        Intersection ending;
+        Road endingRoad = roads[vehicle.endingRoadId];
+        if (vehicle.ending[1] == 1) {
+            ending = intersections[endingRoad.int2Id];
+        } else {
+            ending = intersections[endingRoad.int1Id];
+        }
 
-
+        // A*
+        PathNode startNode(starting);
+        PathNode endNode(ending);
+        
+        priority_queue<PathNode> openNodes;
+        unordered_map<int, float> gScore;
+        unordered_set<int> closedNodes;
+        unordered_map<int, shared_ptr<PathNode>> nodeMap;
+        
+        // Initialize search
+        startNode.g = 0;
+        startNode.h = heuristic(starting, ending);
+        startNode.f = startNode.g + startNode.h;
+        
+        auto startPtr = make_shared<PathNode>(startNode);
+        openNodes.push(*startPtr);
+        gScore[starting.id] = 0;
+        nodeMap[starting.id] = startPtr;
+        
+        bool pathFound = false;
+        int expansions = 0;
+        const int MAX_EXPANSIONS = 10000;
+        
+        while (!openNodes.empty() && expansions < MAX_EXPANSIONS) {
+            expansions++;
+            
+            // Get the node with the lowest f score
+            PathNode currentNode = openNodes.top();
+            openNodes.pop();
+            
+            int currentId = currentNode.intersection.id;
+            
+            // If we've already processed this node with a better path, skip it
+            if (closedNodes.find(currentId) != closedNodes.end())
+                continue;
+                
+            // Add to closed set
+            closedNodes.insert(currentId);
+            
+            // Check if we reached the destination
+            if (currentId == ending.id) {
+                pathFound = true;
+                
+                // Reconstruct the path
+                vector<Intersection> path;
+                shared_ptr<PathNode> current = nodeMap[currentId];
+                
+                // Update reservation table along the path
+                shared_ptr<PathNode> prev = nullptr;
+                float arrivalTime = 0;
+                
+                while (current != nullptr) {
+                    path.push_back(current->intersection);
+                    
+                    // Update reservation table for each road segment
+                    if (prev != nullptr) {
+                        int currentId = current->intersection.id;
+                        int prevId = prev->intersection.id;
+                        
+                        // Find the road between the two intersections
+                        if (graph.count(currentId) && graph[currentId].count(prevId)) {
+                            Road& road = graph[currentId][prevId];
+                            float traversalTime = calculateTraversalTime(
+                                road, current->intersection, prev->intersection, 
+                                arrivalTime, reservationTable[road.id], autoFlowPercentage
+                            );
+                            
+                            // Update reservation table (with mutex for thread safety)
+                            {
+                                lock_guard<mutex> lock(reservationTableMutex);
+                                reservationTable[road.id].upd(
+                                    ceil(arrivalTime), 
+                                    ceil(arrivalTime + traversalTime), 
+                                    {1, true}
+                                );
+                            }
+                            
+                            arrivalTime += traversalTime;
+                        }
+                    }
+                    
+                    prev = current;
+                    current = current->parent;
+                }
+                
+                reverse(path.begin(), path.end());
+                
+                // Store the path (with mutex for thread safety)
+                {
+                    lock_guard<mutex> lock(pathsMutex);
+                    paths[vehicleId] = path;
+                }
+                
+                break;
+            }
+            
+            // Expand neighboring nodes
+            for (const auto& neighId : currentNode.intersection.connectingIntersectionIDs) {
+                // Skip if already closed
+                if (closedNodes.find(neighId) != closedNodes.end())
+                    continue;
+                
+                const Intersection& neigh = intersections[neighId];
+                
+                // Calculate g score for this path
+                float g = currentNode.g;
+                
+                // Add cost for this edge/road
+                if (graph.count(currentId) && graph[currentId].count(neighId)) {
+                    Road& road = graph[currentId][neighId];
+                    g += calculateTraversalTime(
+                        road,
+                        currentNode.intersection, neigh,
+                        currentNode.g, 
+                        reservationTable[road.id],
+                        autoFlowPercentage
+                    );
+                } else {
+                    // No direct road found, use fallback cost
+                    g += sqrt(pow(currentNode.intersection.x - neigh.x, 2) + 
+                             pow(currentNode.intersection.y - neigh.y, 2)) / avgSpeed;
+                }
+                
+                // If we found a better path to this node
+                if (!gScore.count(neighId) || g < gScore[neighId]) {
+                    gScore[neighId] = g;
+                    
+                    float h = heuristic(neigh, ending);
+                    float f = g + h;
+                    
+                    auto neighPtr = make_shared<PathNode>(neigh);
+                    neighPtr->parent = nodeMap[currentId];
+                    neighPtr->g = g;
+                    neighPtr->h = h;
+                    neighPtr->f = f;
+                    
+                    nodeMap[neighId] = neighPtr;
+                    openNodes.push(*neighPtr);
+                }
+            }
+        }
+        
+        auto endTime = chrono::high_resolution_clock::now();
+        auto duration = chrono::duration_cast<chrono::milliseconds>(endTime - startTime);
+        
+        {
+            lock_guard<mutex> lock(coutMutex);
+            if (pathFound) {
+                cout << "Vehicle " << vehicleId << ": Path found in " 
+                     << duration.count() << "ms (" << expansions << " expansions)" << endl;
+            } else {
+                cout << "Vehicle " << vehicleId << ": Path NOT found after " 
+                     << duration.count() << "ms (" << expansions << " expansions)" << endl;
+            }
+        }
+    };
+    
+    // Process vehicles in parallel batches
+    atomic<int> completedVehicles(0);
+    const size_t totalVehicles = vehicleVector.size();
+    
+    // Create processing threads
+    vector<thread> threads;
+    for (int t = 0; t < CPU_THREADS; t++) {
+        threads.emplace_back([&, t]() {
+            for (size_t idx = t; idx < totalVehicles; idx += CPU_THREADS) {
+                int vehicleId = vehicleVector[idx].first;
+                const Vehicle& vehicle = vehicleVector[idx].second;
+                
+                // Process this vehicle
+                processVehiclePath(vehicleId, vehicle);
+                
+                // Update progress
+                int completed = ++completedVehicles;
+                if (completed % 100 == 0 || completed == totalVehicles) {
+                    lock_guard<mutex> lock(coutMutex);
+                    cout << "Completed " << completed << "/" << totalVehicles 
+                         << " vehicles (" << (completed * 100 / totalVehicles) << "%)" << endl;
+                }
+            }
+        });
+    }
+    
+    // Wait for all threads to finish
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    // Output results
+    {
+        lock_guard<mutex> lock(coutMutex);
+        cout << "Found paths for " << paths.size() << "/" << vehicleVector.size() << " vehicles" << endl;
+        cout << "---" << endl;
+        for (auto& [id, path] : paths) {
+            cout << id << " ";
+            for (auto& intersection : path) {
+                cout << intersection.id << " ";
+            }
+            cout << endl;
+        }
+    }
 }
  
 int main() {
