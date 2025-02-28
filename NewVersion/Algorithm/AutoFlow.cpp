@@ -259,9 +259,9 @@ float calculateTraversalTime(const Road& road, const Intersection& current,
 // Run graph partitioning and set up data structures before pathfinding
 pair<vector<unordered_set<int>>, vector<vector<int>>> partitionGraph() {
     // dynamic partition depth
-    int partitioningDepth = log2(intersections.size() / 200);
+    int partitioningDepth = log2(sqrt(intersections.size()));
     partitioningDepth = max(1, partitioningDepth); // Ensure at least one level
-    int minPartitionSize = 200;
+    int minPartitionSize = sqrt(intersections.size());
     
     cout << "Starting graph partitioning with depth=" << partitioningDepth 
          << " and minSize=" << minPartitionSize << "..." << endl;
@@ -290,6 +290,153 @@ pair<vector<unordered_set<int>>, vector<vector<int>>> partitionGraph() {
     
     return {partitions, partitionAdjacencyList};
 }
+
+// Add this custom binary heap implementation before the AutoFlow function
+template<typename T, typename Compare = less<T>>
+class BinaryHeap {
+private:
+    vector<T> heap;
+    unordered_map<int, int> idToPosition; // Maps node ID to position in heap array
+    Compare compare;
+    
+    // Helper functions for heap operations
+    void siftUp(int idx) {
+        int parent;
+        while (idx > 0) {
+            parent = (idx - 1) / 2;
+            if (compare(heap[parent], heap[idx])) {
+                break; // Heap property satisfied
+            }
+            swap(heap[parent], heap[idx]);
+            
+            // Update position mapping
+            if (is_same<T, PathNode>::value) {
+                idToPosition[heap[parent].intersection.id] = parent;
+                idToPosition[heap[idx].intersection.id] = idx;
+            }
+            
+            idx = parent;
+        }
+    }
+    
+    void siftDown(int idx) {
+        int size = heap.size();
+        int minChild;
+        
+        while (2 * idx + 1 < size) {
+            int leftChild = 2 * idx + 1;
+            int rightChild = leftChild + 1;
+            
+            minChild = leftChild;
+            
+            if (rightChild < size && compare(heap[rightChild], heap[leftChild])) {
+                minChild = rightChild;
+            }
+            
+            if (compare(heap[idx], heap[minChild])) {
+                break; // Heap property satisfied
+            }
+            
+            swap(heap[idx], heap[minChild]);
+            
+            // Update position mapping
+            if (is_same<T, PathNode>::value) {
+                idToPosition[heap[idx].intersection.id] = idx;
+                idToPosition[heap[minChild].intersection.id] = minChild;
+            }
+            
+            idx = minChild;
+        }
+    }
+    
+public:
+    BinaryHeap() : compare(Compare()) {}
+    
+    bool empty() const {
+        return heap.empty();
+    }
+    
+    size_t size() const {
+        return heap.size();
+    }
+    
+    void push(const T& item) {
+        heap.push_back(item);
+        
+        // Update position mapping if we're storing PathNode objects
+        if (is_same<T, PathNode>::value) {
+            idToPosition[item.intersection.id] = heap.size() - 1;
+        }
+        
+        siftUp(heap.size() - 1);
+    }
+    
+    T top() const {
+        if (empty()) {
+            throw runtime_error("Heap is empty");
+        }
+        return heap[0];
+    }
+    
+    void pop() {
+        if (empty()) {
+            throw runtime_error("Heap is empty");
+        }
+        
+        // Update position mapping
+        if (is_same<T, PathNode>::value) {
+            idToPosition.erase(heap[0].intersection.id);
+        }
+        
+        heap[0] = heap.back();
+        heap.pop_back();
+        
+        if (!empty()) {
+            // Update position mapping for the relocated item
+            if (is_same<T, PathNode>::value) {
+                idToPosition[heap[0].intersection.id] = 0;
+            }
+            siftDown(0);
+        }
+    }
+    
+    bool contains(int id) const {
+        return idToPosition.find(id) != idToPosition.end();
+    }
+    
+    void update(const T& item) {
+        if (!is_same<T, PathNode>::value) {
+            throw runtime_error("Update only supported for PathNode");
+        }
+        
+        auto it = idToPosition.find(item.intersection.id);
+        if (it == idToPosition.end()) {
+            // Item not in heap, just push it
+            push(item);
+            return;
+        }
+        
+        int idx = it->second;
+        
+        // Check if the new value is smaller or larger than current
+        if (compare(item, heap[idx])) {
+            // New value is higher priority (smaller f-value for min-heap)
+            heap[idx] = item;
+            siftUp(idx);
+        } else {
+            // New value is lower priority (larger f-value for min-heap)
+            heap[idx] = item;
+            siftDown(idx);
+        }
+    }
+};
+
+// Custom comparison function for PathNode (inverse of original since we want a min-heap)
+struct PathNodeCompare {
+    bool operator()(const PathNode& a, const PathNode& b) const {
+        return a.f < b.f;  // Min heap based on f-value
+    }
+};
 
 // Update AutoFlow to use the enhanced pathfinder
 void AutoFlow() {
@@ -446,7 +593,7 @@ void AutoFlow() {
                         }
                         
                         // Run A* within current partition
-                        priority_queue<PathNode> openNodes;
+                        BinaryHeap<PathNode, PathNodeCompare> openNodes;
                         unordered_map<int, float> gScore;
                         unordered_set<int> closedNodes;
                         unordered_map<int, shared_ptr<PathNode>> nodeMap;
@@ -543,7 +690,7 @@ void AutoFlow() {
                                     neighPtr->f = f;
                                     
                                     nodeMap[neighId] = neighPtr;
-                                    openNodes.push(*neighPtr);
+                                    openNodes.update(*neighPtr); // Use update instead of push
                                 }
                             }
                         }
@@ -559,7 +706,7 @@ void AutoFlow() {
                 }
                 
                 // Run A* within final partition
-                priority_queue<PathNode> openNodes;
+                BinaryHeap<PathNode, PathNodeCompare> openNodes;
                 unordered_map<int, float> gScore;
                 unordered_set<int> closedNodes;
                 unordered_map<int, shared_ptr<PathNode>> nodeMap;
@@ -649,7 +796,7 @@ void AutoFlow() {
                             neighPtr->f = f;
                             
                             nodeMap[neighId] = neighPtr;
-                            openNodes.push(*neighPtr);
+                            openNodes.update(*neighPtr); // Use update instead of push
                         }
                     }
                 }
@@ -678,7 +825,7 @@ void AutoFlow() {
         PathNode startNode(starting);
         PathNode endNode(ending);
         
-        priority_queue<PathNode> openNodes;
+        BinaryHeap<PathNode, PathNodeCompare> openNodes;
         unordered_map<int, float> gScore;
         unordered_set<int> closedNodes;
         unordered_map<int, shared_ptr<PathNode>> nodeMap;
@@ -800,7 +947,7 @@ void AutoFlow() {
                     neighPtr->f = f;
                     
                     nodeMap[neighId] = neighPtr;
-                    openNodes.push(*neighPtr);
+                    openNodes.update(*neighPtr); // Use update instead of push
                 }
             }
         }

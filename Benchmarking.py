@@ -3,14 +3,15 @@ from NewVersion.AutoFlow import *
 import random
 import time
 
-toTest = 100
+toTest = 1000
 
-landscape = Landscape(1000, 
-                      1000,
+landscape = Landscape(500, 
+                      500,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
 landscape.generate()
-# landscape.load("NewVersion/benchmark.txt")
+#landscape.store("NewVersion/benchmark.txt")
+landscape.load("NewVersion/benchmark.txt")
 
 print("Landscape loaded")
 
