@@ -97,92 +97,71 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
     The Closed list contains all visited nodes (including end points of a road as well as the starting position).
     """
     
-    routes: dict[int, list[tuple[tuple[float, float], int]]] = {}
 
-    for vehicle in selfish_vehicles:
-
-        startNode = vehicle.starting
-        endNode = vehicle.ending
-        
-        # A*
-        openNodes = []
-        closedNodes = set()
-        start = Node(startNode)
-        end = Node(endNode)
-        openDict = {}
-
-        heappush(openNodes, start)
-        openDict[start.position] = start
-        finalPath = []
-
-        while len(openNodes) > 0:
-            currentNode = heappop(openNodes)
-
-            # faster than checking if the node is in the open list
-            try:
-                del openDict[currentNode.position]
-            except:
-                pass
-            
-            closedNodes.add(currentNode.position)
-
-            # rebuild the path
-            if end.position.road == currentNode.position.road:
-                path = []
-                while currentNode:
-                    path.append(currentNode)
-                    currentNode = currentNode.parent
-                finalPath = path[::-1]
-                finalPath.append(end)
-                betterPath = []
-                for i in range(len(finalPath) - 1):
-                    betterPath.append(finalPath[i+1].position)
-                finalPath = betterPath
-                break
-            
-            # this is how we check for the next node to visit: first, iterate over all associated virtual intersections on the same road
-            # these are the nodes that allow you to transition to the next road, so they are an intermediary step
-            for avi in currentNode.position.road.associatedVirtualIntersections:
-
-                # check if this virtual intersection is attached to the right side of the road
-                nodeNeeded = None
-                if currentNode.position.direction == 1:
-                    nodeNeeded = currentNode.position.road.int2
-                else:
-                    nodeNeeded = currentNode.position.road.int1
-                
-                # if its not the right side of the road, skip this virtual intersection
-                if avi.correspondingRealIntersection != nodeNeeded or avi.direction != currentNode.position.direction:
-                    continue
-                
-                # then, we check everything this intermediary node is connected to - hopefully, we find one on another road
-                for neighbour in avi.connectingVirtualInts:
-                    
-                    # if we have already visited this node, skip it
-                    if neighbour in closedNodes or neighbour.road == currentNode.position.road:
-                        continue
-                    
-                    # very simple algorithm that solely calculates the time taken to reach the destination
-                    intermediary = Node(avi, currentNode)
-                    neighNode = Node(neighbour, intermediary)
-                    assert neighNode != currentNode and intermediary != currentNode
-                    road = currentNode.position.road
-                    neighNode.g = currentNode.g + road.traversalTime
-                    neighNode.h = heuristic(neighbour, endNode)
-                    
-                    # more weighting on the heuristic as it is somewhat accurate, and also significantly speeds up the process
-                    neighNode.f = neighNode.g + neighNode.h * 2
-
-                    if neighbour in openDict and neighNode.g > openDict[neighbour].g:
-                        continue
-                    
-                    # push the node into the open list
-                    heappush(openNodes, neighNode)
-                    openDict[intermediary.position] = intermediary
-                    openDict[neighbour] = neighNode
-        
-        routes[vehicle.id] = finalPath
+    # Send data to the C++ program
+    input_data = ""
     
+    # intersections
+    input_data += f"{len(landscape.intersections)}\n"
+    for intersection in landscape.intersections.values():
+        input_data += f"{intersection.id} {intersection.trafficLightDuration} {intersection.roadCount} {intersection.x} {intersection.y}\n"
+
+    
+    # roads
+    input_data += f"{len(landscape.roads)}\n"
+    for road in landscape.roads:
+        st = f"{road.id} {road.length} {road.speedLimit} {road.capacity} {road.int1.id} {road.int2.id} {road.traversalTime} {road.laneCount}\n"
+        input_data += st
+        input_data += f"{len(road.positions)}\n"
+        for pos in road.positions:
+            input_data += f"{pos[0]} {pos[1]} {pos[2]}\n"
+
+    # graph
+    input_data += f"{len(landscape.GRAPH)}\n"
+    for key, value in landscape.GRAPH.items():
+        input_data += f"{len(value)}\n"
+        for v in value:
+            input_data += f"{key.id} {v.id} {landscape.GRAPH[key][v].id}\n"
+
+    # vehicles
+    input_data += f"{len(selfish_vehicles)}\n"
+    for vehicle in selfish_vehicles:
+        input_data += f"{vehicle.id} {vehicle.startingRoadId} {vehicle.endingRoadId} {vehicle.starting[0]} {vehicle.starting[1]} {vehicle.starting[2]} {vehicle.ending[0]} {vehicle.ending[1]} {vehicle.ending[2]}\n"
+    
+
+    process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    # process.stdin.write(input_data)
+    # process.stdin.flush()
+    stdout, stderr = process.communicate(input=input_data)
+    
+    # Check for errors
+    if stderr:
+        print(f"Error from C++ program: {stderr}")
+    
+
+    actual_output = stdout.split("\n")
+    # print(actual_output)
+    ind = actual_output.index("---")
+    actual_output = actual_output[ind+1:]
+    # print(actual_output)
+    stdout = "\n".join(stdout.split('\n')[:ind])
+
+    # Read the output from the C++ program
+    #output_data = process.stdout.readline()
+    #print(f"C++ says: {output_data}")
+    print(stdout)
+
+    process.stdin.close()
+    process.wait()
+
+    routes = {}
+    for vehicle in actual_output:
+        if len(vehicle) == 0:
+            continue
+        i = vehicle.split()
+        #print(i)
+        routes[int(i[0])] = [landscape.intersections[int(j)] for j in i[1:]]
+
     return routes
 
 def sortVehicles(autoflow_vehicles: list[Vehicle]):
@@ -251,7 +230,7 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
     for vehicle in autoflowVehicles:
         input_data += f"{vehicle.id} {vehicle.startingRoadId} {vehicle.endingRoadId} {vehicle.starting[0]} {vehicle.starting[1]} {vehicle.starting[2]} {vehicle.ending[0]} {vehicle.ending[1]} {vehicle.ending[2]}\n"
     
-    process = subprocess.Popen(["NewVersion/Algorithm/AutoFlow.exe"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(["NewVersion/Algorithm/AutoFlow"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # process.stdin.write(input_data)
     # process.stdin.flush()
     stdout, stderr = process.communicate(input=input_data)

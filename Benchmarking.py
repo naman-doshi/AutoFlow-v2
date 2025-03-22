@@ -4,7 +4,7 @@ import random
 import time
 import json
 
-toTest = 1000
+toTest = 100
 
 landscape = Landscape(500, 
                       500,
@@ -51,7 +51,7 @@ for i in range(toTest):
 end = time.time()
 print("Time taken to generate vehicles: ", end - start)
 
-allRoutes = computeRoutes([], autoFlowVehicles, landscape)
+allRoutes = computeRoutes(autoFlowVehicles, autoFlowVehicles, landscape)
 print("Time taken to compute routes: ", time.time() - end)
 
 landscape.show()

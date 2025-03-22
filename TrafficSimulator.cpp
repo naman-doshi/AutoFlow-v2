@@ -8,10 +8,11 @@
 #include <cmath>
 #include <chrono>
 #include <random>
+#include <array>
+#include <float.h>  // For FLT_MAX
 #include "json.hpp" // Include JSON library
 
 using json = nlohmann::json;
-
 using namespace std;
 
 //=========================================
@@ -26,31 +27,35 @@ const float DRIVER_REACTION_TIME = 1.0f;   // seconds
 const float ACCELERATION = 2.5f;           // m/s²
 const float DECELERATION = 4.5f;           // m/s²
 const float MAX_DECELERATION = 9.0f;       // m/s² (emergency braking)
-const int SIMULATION_DURATION = 360000;      // seconds (1 hour)
+const int SIMULATION_DURATION = 360000;    // seconds (1 hour)
+const float LANE_CHANGE_COOLDOWN = 3.0f;   // Minimum time between lane changes
+const float LANE_CHANGE_GAP_REQUIRED = 10.0f; // Minimum gap required to change lanes
 
-// Simple vector class for 2D coordinates
+// Simple vector class for 2D coordinates - optimized with inline operations
 struct Vec2 {
     float x, y;
     
     Vec2(float x = 0.0f, float y = 0.0f) : x(x), y(y) {}
     
-    float distance(const Vec2& other) const {
-        return sqrt(pow(x - other.x, 2) + pow(y - other.y, 2));
+    inline float distance(const Vec2& other) const {
+        float dx = x - other.x;
+        float dy = y - other.y;
+        return sqrt(dx*dx + dy*dy);
     }
     
-    Vec2 operator+(const Vec2& other) const {
+    inline Vec2 operator+(const Vec2& other) const {
         return Vec2(x + other.x, y + other.y);
     }
     
-    Vec2 operator-(const Vec2& other) const {
+    inline Vec2 operator-(const Vec2& other) const {
         return Vec2(x - other.x, y - other.y);
     }
     
-    Vec2 operator*(float scalar) const {
+    inline Vec2 operator*(float scalar) const {
         return Vec2(x * scalar, y * scalar);
     }
     
-    Vec2 normalized() const {
+    inline Vec2 normalized() const {
         float len = sqrt(x*x + y*y);
         if (len > 0.001f) {
             return Vec2(x / len, y / len);
@@ -58,6 +63,9 @@ struct Vec2 {
         return *this;
     }
 };
+
+// Forward declarations to resolve circular dependencies
+struct Vehicle;
 
 // Intersection class
 struct Intersection {
@@ -84,7 +92,7 @@ struct Intersection {
     }
 };
 
-// Road class
+// Road class with optimized data structures for vehicle tracking
 struct Road {
     int id;
     float length;
@@ -101,8 +109,15 @@ struct Road {
     int vehicleCount = 0;
     float congestionFactor = 0.0f;
     
+    // Spatial indexing for fast vehicle lookup - array of sorted vehicles per lane
+    vector<vector<int>> vehiclesInLanes;
+    
     Road() : id(-1), length(0), speedLimit(0), capacity(0), laneCount(1), 
              int1Id(-1), int2Id(-1) {}
+    
+    void initializeLanes() {
+        vehiclesInLanes.resize(laneCount);
+    }
              
     void calculateDirection(const Intersection& i1, const Intersection& i2) {
         startPos = Vec2(i1.position.x, i1.position.y);
@@ -121,11 +136,46 @@ struct Road {
         // Speed drops with congestion
         return max(speedLimit * (1.0f - 0.7f * congestionFactor), 5.0f); // Minimum 5 m/s
     }
+    
+    // Add vehicle to spatial index
+    void addVehicle(int vehicleId, int lane, float position) {
+        if (lane >= 0 && lane < vehiclesInLanes.size()) {
+            vehiclesInLanes[lane].push_back(vehicleId);
+            vehicleCount++;
+        }
+    }
+    
+    // Remove vehicle from spatial index
+    void removeVehicle(int vehicleId, int lane) {
+        if (lane >= 0 && lane < vehiclesInLanes.size()) {
+            auto& laneVehicles = vehiclesInLanes[lane];
+            laneVehicles.erase(
+                remove(laneVehicles.begin(), laneVehicles.end(), vehicleId),
+                laneVehicles.end());
+            vehicleCount--;
+        }
+    }
+    
+    // Find nearest vehicle ahead in the same lane
+    int findNearestVehicleAhead(float position, int lane, const vector<Vehicle>& allVehicles) const;
+    
+    // Find nearest vehicle behind in the same lane
+    int findNearestVehicleBehind(float position, int lane, const vector<Vehicle>& allVehicles) const;
+    
+    // Check if lane change is safe
+    bool isLaneChangeSafe(float position, int currentLane, int targetLane, const vector<Vehicle>& allVehicles) const;
+    
+    // Sort vehicles in each lane by position for faster lookup
+    void sortVehiclesByPosition(const vector<Vehicle>& allVehicles);
+    
+    // Determine which lanes can turn onto a specific next road
+    vector<int> getLanesForNextRoad(int nextRoadId, const unordered_map<int, Road>& allRoads) const;
 };
 
 // Vehicle class
 struct Vehicle {
     int id;
+    int index; // Index in the vehicles vector for O(1) lookup
     int startingRoadId;
     int endingRoadId;
     float emissionRate;  // g/km
@@ -139,6 +189,8 @@ struct Vehicle {
     float position = 0.0f;  // Position along current road (0 to 1)
     float speed = 0.0f;     // m/s
     int lane = 0;           // Lane number
+    float timeSinceLastLaneChange = LANE_CHANGE_COOLDOWN; // To prevent constant lane changes
+    int targetLane = -1;    // Target lane for changing (-1 if not changing)
     
     // Simulation metrics
     float travelTime = 0.0f;
@@ -150,7 +202,208 @@ struct Vehicle {
     Vec2 getPosition(const Road& road) const {
         return road.startPos + road.direction * (road.length * position);
     }
+    
+    // Check if we need to change lanes based on our next turn
+    bool needsLaneChange(const Road& currentRoad, const unordered_map<int, Road>& allRoads) const {
+        if (nextRoadId == -1) return false;
+        
+        vector<int> appropriateLanes = currentRoad.getLanesForNextRoad(nextRoadId, allRoads);
+        if (appropriateLanes.empty()) return false; // No specific lanes required
+        
+        // Check if we're already in an appropriate lane
+        return std::find(appropriateLanes.begin(), appropriateLanes.end(), lane) == appropriateLanes.end();
+    }
+    
+    // Find best target lane when a lane change is needed
+    int findBestTargetLane(const Road& currentRoad, const unordered_map<int, Road>& allRoads) const {
+        if (nextRoadId == -1) return lane; // No change needed
+        
+        vector<int> appropriateLanes = currentRoad.getLanesForNextRoad(nextRoadId, allRoads);
+        if (appropriateLanes.empty()) return lane; // No specific lanes required
+        
+        // Find the closest appropriate lane that is adjacent or current
+        int bestLane = lane;
+        
+        // Check if current lane is already appropriate
+        if (find(appropriateLanes.begin(), appropriateLanes.end(), lane) != appropriateLanes.end()) {
+            return lane; // Already in an appropriate lane
+        }
+        
+        // Find the closest lane that is appropriate and adjacent to current lane
+        int closestLane = -1;
+        int minDistance = currentRoad.laneCount;
+        
+        for (int candidateLane : appropriateLanes) {
+            int distance = abs(candidateLane - lane);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestLane = candidateLane;
+            }
+        }
+        
+        // If closest lane is directly adjacent, choose it
+        if (closestLane != -1 && abs(closestLane - lane) == 1) {
+            bestLane = closestLane;
+        } 
+        // Otherwise, move one lane in the direction of the closest appropriate lane
+        else if (closestLane != -1) {
+            bestLane = lane + (closestLane > lane ? 1 : -1);
+        }
+        
+        return bestLane;
+    }
 };
+
+// Implementation of methods that depend on Vehicle type being complete
+int Road::findNearestVehicleAhead(float position, int lane, const vector<Vehicle>& allVehicles) const {
+    if (lane < 0 || lane >= vehiclesInLanes.size()) return -1;
+    
+    const auto& laneVehicles = vehiclesInLanes[lane];
+    float minDistance = FLT_MAX;
+    int nearestVehicleId = -1;
+    
+    for (int vehicleId : laneVehicles) {
+        const auto& otherVehicle = allVehicles[vehicleId];
+        if (otherVehicle.position > position) {
+            float distance = (otherVehicle.position - position) * length;
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestVehicleId = vehicleId;
+            }
+        }
+    }
+    
+    return nearestVehicleId;
+}
+
+int Road::findNearestVehicleBehind(float position, int lane, const vector<Vehicle>& allVehicles) const {
+    if (lane < 0 || lane >= vehiclesInLanes.size()) return -1;
+    
+    const auto& laneVehicles = vehiclesInLanes[lane];
+    float minDistance = FLT_MAX;
+    int nearestVehicleId = -1;
+    
+    for (int vehicleId : laneVehicles) {
+        const auto& otherVehicle = allVehicles[vehicleId];
+        if (otherVehicle.position < position) {
+            float distance = (position - otherVehicle.position) * length;
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestVehicleId = vehicleId;
+            }
+        }
+    }
+    
+    return nearestVehicleId;
+}
+
+bool Road::isLaneChangeSafe(float position, int currentLane, int targetLane, 
+                           const vector<Vehicle>& allVehicles) const {
+    if (targetLane < 0 || targetLane >= laneCount) return false;
+    
+    // Check for vehicles ahead in target lane
+    int vehicleAheadId = findNearestVehicleAhead(position, targetLane, allVehicles);
+    if (vehicleAheadId != -1) {
+        const auto& vehicleAhead = allVehicles[vehicleAheadId];
+        float distanceAhead = (vehicleAhead.position - position) * length;
+        if (distanceAhead < LANE_CHANGE_GAP_REQUIRED) return false;
+    }
+    
+    // Check for vehicles behind in target lane
+    int vehicleBehindId = findNearestVehicleBehind(position, targetLane, allVehicles);
+    if (vehicleBehindId != -1) {
+        const auto& vehicleBehind = allVehicles[vehicleBehindId];
+        float distanceBehind = (position - vehicleBehind.position) * length;
+        
+        // Allow less space behind if the vehicle is moving slower
+        float requiredDistanceBehind = max(LANE_CHANGE_GAP_REQUIRED / 2, 
+                                          vehicleBehind.speed * 1.0f); // 1 second of travel time
+        if (distanceBehind < requiredDistanceBehind) return false;
+    }
+    
+    return true;
+}
+
+vector<int> Road::getLanesForNextRoad(int nextRoadId, const unordered_map<int, Road>& allRoads) const {
+    vector<int> appropriateLanes;
+    
+    // Find the next road
+    auto nextRoadIt = allRoads.find(nextRoadId);
+    if (nextRoadIt == allRoads.end()) return appropriateLanes;
+    
+    const Road& nextRoad = nextRoadIt->second;
+    
+    // Determine which intersection connects current road to next road
+    int sharedIntersectionId = -1;
+    if (int1Id == nextRoad.int1Id || int1Id == nextRoad.int2Id) {
+        sharedIntersectionId = int1Id;
+    } else if (int2Id == nextRoad.int1Id || int2Id == nextRoad.int2Id) {
+        sharedIntersectionId = int2Id;
+    }
+    
+    if (sharedIntersectionId == -1) return appropriateLanes; // No shared intersection
+    
+    // Determine turning direction (left, straight, right)
+    bool isGoingToInt1 = (sharedIntersectionId == int1Id);
+    bool nextRoadFromSharedInt1 = (sharedIntersectionId == nextRoad.int1Id);
+    
+    // Simplified lane mapping rules:
+    // - Left turns: use leftmost lanes
+    // - Right turns: use rightmost lanes
+    // - Going straight: use middle lanes or all lanes if only 2 lanes
+    
+    // Calculate road direction vectors to determine turn type
+    Vec2 currentDir = isGoingToInt1 ? Vec2(-direction.x, -direction.y) : direction;
+    Vec2 nextDir = nextRoadFromSharedInt1 ? nextRoad.direction : Vec2(-nextRoad.direction.x, -nextRoad.direction.y);
+    
+    // Cross product to determine left/right turn
+    float cross = currentDir.x * nextDir.y - currentDir.y * nextDir.x;
+    float dot = currentDir.x * nextDir.x + currentDir.y * nextDir.y;
+    
+    // Assign appropriate lanes
+    int numLanesToUse = min(laneCount, nextRoad.laneCount);
+    
+    if (cross > 0.3) {
+        // Left turn - use leftmost lanes
+        for (int i = 0; i < numLanesToUse; i++) {
+            appropriateLanes.push_back(i);
+        }
+    } else if (cross < -0.3) {
+        // Right turn - use rightmost lanes
+        for (int i = 0; i < numLanesToUse; i++) {
+            appropriateLanes.push_back(laneCount - 1 - i);
+        }
+    } else if (dot > 0) {
+        // Roughly straight - can use all lanes or middle lanes
+        if (laneCount <= 2) {
+            for (int i = 0; i < laneCount; i++) {
+                appropriateLanes.push_back(i);
+            }
+        } else {
+            // Use middle lanes, proportionally distributed
+            int startLane = (laneCount - numLanesToUse) / 2;
+            for (int i = 0; i < numLanesToUse; i++) {
+                appropriateLanes.push_back(startLane + i);
+            }
+        }
+    } else {
+        // Complicated turn or U-turn - allow all lanes for simplicity
+        for (int i = 0; i < laneCount; i++) {
+            appropriateLanes.push_back(i);
+        }
+    }
+    
+    return appropriateLanes;
+}
+
+void Road::sortVehiclesByPosition(const vector<Vehicle>& allVehicles) {
+    for (auto& laneVehicles : vehiclesInLanes) {
+        sort(laneVehicles.begin(), laneVehicles.end(), 
+            [&allVehicles](int id1, int id2) {
+                return allVehicles[id1].position < allVehicles[id2].position;
+            });
+    }
+}
 
 //===========================
 // SECTION 2: File I/O
@@ -163,11 +416,15 @@ private:
     vector<Vehicle> vehicles;
     float simulationTime = 0.0f;
     
+    // Efficient lookup structures
+    unordered_map<int, int> roadConnections;  // Quick lookup for connected roads
+    
     // Metrics
     float totalEmissions = 0.0f;
     float totalTravelTime = 0.0f;
     float totalPassengerTime = 0.0f;
     int vehiclesCompleted = 0;
+    int laneChangeCount = 0;
     
 public:
     bool loadSimulationData(const string& filename) {
@@ -196,6 +453,9 @@ public:
                 intersections[intersection.id] = intersection;
             }
             
+            // Pre-allocate roads to avoid rehashing during loading
+            roads.reserve(data["roads"].size());
+            
             // Load roads
             for (const auto& roadData : data["roads"]) {
                 Road road;
@@ -216,13 +476,26 @@ public:
                     }
                 }
                 
+                // Initialize lanes for vehicle tracking
+                road.initializeLanes();
                 roads[road.id] = road;
+                
+                // Build road connection lookup table for faster route finding
+                int key = (road.int1Id << 16) | road.int2Id;  // combine the two IDs into a single key
+                roadConnections[key] = road.id;
+                // Also add the reverse direction since roads are bi-directional
+                key = (road.int2Id << 16) | road.int1Id;
+                roadConnections[key] = road.id;
             }
+            
+            // Pre-allocate vehicles vector to avoid reallocation
+            vehicles.reserve(data["vehicles"].size());
             
             // Load vehicles
             for (const auto& vehicleData : data["vehicles"]) {
                 Vehicle vehicle;
                 vehicle.id = vehicleData["id"];
+                vehicle.index = vehicles.size();  // Store the index for O(1) lookup
                 vehicle.startingRoadId = vehicleData["starting_road"];
                 vehicle.endingRoadId = vehicleData["ending_road"];
                 vehicle.emissionRate = vehicleData["emission_rate"];
@@ -236,20 +509,26 @@ public:
                 if (!vehicle.route.empty()) {
                     vehicle.currentRoadId = vehicle.startingRoadId;
                     vehicle.position = 0.0f; // Start of the road
-                    vehicle.lane = rand() % roads[vehicle.currentRoadId].laneCount;
                     
-                    // Find next road in route
+                    // Get road and assign a lane
+                    auto roadIt = roads.find(vehicle.currentRoadId);
+                    if (roadIt != roads.end()) {
+                        vehicle.lane = rand() % roadIt->second.laneCount;
+                        roadIt->second.addVehicle(vehicle.index, vehicle.lane, vehicle.position);
+                    }
+                    
+                    // Find next road in route using the fast lookup table
                     if (vehicle.route.size() > 1) {
                         int currInt = vehicle.route[0];
                         int nextInt = vehicle.route[1];
                         
-                        // Find road connecting these intersections
-                        for (const auto& [id, road] : roads) {
-                            if ((road.int1Id == currInt && road.int2Id == nextInt) || 
-                                (road.int2Id == currInt && road.int1Id == nextInt)) {
-                                vehicle.nextRoadId = id;
-                                break;
-                            }
+                        // Use road connection lookup table
+                        int key = (currInt << 16) | nextInt;
+                        auto connectionIt = roadConnections.find(key);
+                        if (connectionIt != roadConnections.end()) {
+                            vehicle.nextRoadId = connectionIt->second;
+                        } else {
+                            vehicle.nextRoadId = -1;
                         }
                     } else {
                         // Route only has one intersection - vehicle is already at destination
@@ -258,6 +537,11 @@ public:
                 }
                 
                 vehicles.push_back(vehicle);
+            }
+            
+            // Sort vehicles in each lane for faster lookups
+            for (auto& [id, road] : roads) {
+                road.sortVehiclesByPosition(vehicles);
             }
             
             cout << "Loaded " << intersections.size() << " intersections, " 
@@ -275,10 +559,93 @@ public:
 //===================================
 
 private:
+    // Process lane change if needed and possible
+    bool processLaneChange(Vehicle& vehicle, Road& currentRoad) {
+        // Update cooldown timer
+        vehicle.timeSinceLastLaneChange += SIMULATION_TIME_STEP;
+        
+        // If already changing lanes or cooldown not expired, skip
+        if (vehicle.timeSinceLastLaneChange < LANE_CHANGE_COOLDOWN) {
+            return false;
+        }
+        
+        // Check if we need to change lanes based on upcoming turn
+        if (vehicle.nextRoadId != -1) {
+            // When we're getting close to the intersection, consider lane changes
+            float distanceToIntersection = (1.0f - vehicle.position) * currentRoad.length;
+            
+            if (distanceToIntersection < 200.0f && distanceToIntersection > 30.0f) {
+                // Determine if we need a lane change and the target lane
+                if (vehicle.needsLaneChange(currentRoad, roads)) {
+                    int bestLane = vehicle.findBestTargetLane(currentRoad, roads);
+                    
+                    if (bestLane != vehicle.lane && abs(bestLane - vehicle.lane) == 1) {
+                        // Only set target lane if it's adjacent to current lane
+                        vehicle.targetLane = bestLane;
+                    }
+                }
+            }
+        } else {
+            // If no next road (end of route), move to rightmost lane if adjacent
+            if (vehicle.lane > 0 && vehicle.position > 0.7f) {
+                vehicle.targetLane = vehicle.lane - 1;
+            }
+        }
+        
+        // If no target lane set, consider changing for speed optimization
+        if (vehicle.targetLane == -1) {
+            // Check for slow vehicle ahead
+            int vehicleAheadId = currentRoad.findNearestVehicleAhead(vehicle.position, vehicle.lane, vehicles);
+            if (vehicleAheadId != -1) {
+                const auto& vehicleAhead = vehicles[vehicleAheadId];
+                float distanceAhead = (vehicleAhead.position - vehicle.position) * currentRoad.length;
+                
+                // If vehicle ahead is slowing us down and we're not close to intersection
+                if (distanceAhead < 50.0f && vehicleAhead.speed < vehicle.speed * 0.8f && 
+                    (1.0f - vehicle.position) * currentRoad.length > 100.0f) {
+                    
+                    // Try to overtake on the left if possible (adjacent lane only)
+                    if (vehicle.lane > 0 && 
+                        currentRoad.isLaneChangeSafe(vehicle.position, vehicle.lane, vehicle.lane - 1, vehicles)) {
+                        vehicle.targetLane = vehicle.lane - 1;
+                    } 
+                    // If left lane not available, try right lane (adjacent lane only)
+                    else if (vehicle.lane < currentRoad.laneCount - 1 &&
+                            currentRoad.isLaneChangeSafe(vehicle.position, vehicle.lane, vehicle.lane + 1, vehicles)) {
+                        vehicle.targetLane = vehicle.lane + 1;
+                    }
+                }
+            }
+        }
+        
+        // If we have a target lane, check if safe to change
+        if (vehicle.targetLane != -1 && vehicle.targetLane != vehicle.lane) {
+            // Ensure target lane is adjacent to current lane
+            if (abs(vehicle.targetLane - vehicle.lane) != 1) {
+                vehicle.targetLane = -1;
+                return false;
+            }
+            
+            if (currentRoad.isLaneChangeSafe(vehicle.position, vehicle.lane, vehicle.targetLane, vehicles)) {
+                // Execute lane change
+                currentRoad.removeVehicle(vehicle.index, vehicle.lane);
+                int oldLane = vehicle.lane;
+                vehicle.lane = vehicle.targetLane;
+                currentRoad.addVehicle(vehicle.index, vehicle.lane, vehicle.position);
+                vehicle.timeSinceLastLaneChange = 0.0f;
+                vehicle.targetLane = -1;
+                laneChangeCount++;
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
     void updateVehiclePhysics(Vehicle& vehicle, float deltaTime) {
         if (vehicle.hasArrived) return;
         
-        // Get current road
+        // Get current road with O(1) lookup
         auto roadIt = roads.find(vehicle.currentRoadId);
         if (roadIt == roads.end()) return;
         
@@ -286,16 +653,14 @@ private:
         float targetSpeed = currentRoad.getEffectiveSpeedLimit();
         
         // Check if approaching intersection
-        bool approachingIntersection = false;
         float distanceToIntersection = (1.0f - vehicle.position) * currentRoad.length;
         
         if (distanceToIntersection < 50.0f) {  // Detection range
-            approachingIntersection = true;
-            
             // Get next intersection
             int nextIntersectionId = (currentRoad.int1Id == vehicle.route[vehicle.routeIndex]) ? 
                                      currentRoad.int2Id : currentRoad.int1Id;
             
+            // O(1) lookup for intersection
             auto intersectionIt = intersections.find(nextIntersectionId);
             if (intersectionIt != intersections.end()) {
                 // Check if light is green for this road
@@ -314,25 +679,22 @@ private:
             }
         }
         
-        // Check for vehicles ahead (basic car-following model)
-        float minFollowingDistance = 0.0f;
-        for (const auto& otherVehicle : vehicles) {
-            if (otherVehicle.id != vehicle.id && 
-                otherVehicle.currentRoadId == vehicle.currentRoadId &&
-                otherVehicle.lane == vehicle.lane &&
-                otherVehicle.position > vehicle.position) {
+        // Process lane changes
+        processLaneChange(vehicle, currentRoad);
+        
+        // Check for vehicles ahead using the optimized spatial index - O(log n) complexity
+        int nearestVehicleId = currentRoad.findNearestVehicleAhead(vehicle.position, vehicle.lane, vehicles);
+        if (nearestVehicleId != -1) {
+            const auto& otherVehicle = vehicles[nearestVehicleId];
+            float distance = (otherVehicle.position - vehicle.position) * currentRoad.length;
+            float safeDistance = vehicle.speed * DRIVER_REACTION_TIME + MIN_FOLLOWING_DISTANCE;
+            
+            if (distance < safeDistance) {
+                float requiredDeceleration = (vehicle.speed * vehicle.speed) / (2.0f * max(0.1f, distance - MIN_FOLLOWING_DISTANCE));
+                requiredDeceleration = min(requiredDeceleration, MAX_DECELERATION);
                 
-                float distance = (otherVehicle.position - vehicle.position) * currentRoad.length;
-                float safeDistance = vehicle.speed * DRIVER_REACTION_TIME + MIN_FOLLOWING_DISTANCE;
-                
-                if (distance < safeDistance) {
-                    float requiredDeceleration = (vehicle.speed * vehicle.speed) / (2.0f * max(0.1f, distance - MIN_FOLLOWING_DISTANCE));
-                    requiredDeceleration = min(requiredDeceleration, MAX_DECELERATION);
-                    
-                    targetSpeed = max(0.0f, vehicle.speed - requiredDeceleration * deltaTime);
-                    vehicle.waitingTime += deltaTime;
-                    break;
-                }
+                targetSpeed = max(0.0f, vehicle.speed - requiredDeceleration * deltaTime);
+                vehicle.waitingTime += deltaTime;
             }
         }
         
@@ -378,46 +740,66 @@ private:
             totalTravelTime += vehicle.travelTime;
             totalPassengerTime += vehicle.travelTime * vehicle.passengerCount;
             
-            // Remove vehicle from current road
+            // Remove vehicle from current road's spatial index
             auto roadIt = roads.find(vehicle.currentRoadId);
             if (roadIt != roads.end()) {
-                roadIt->second.vehicleCount--;
+                roadIt->second.removeVehicle(vehicle.index, vehicle.lane);
             }
             
             return;
         }
         
-        // Move to next road
+        // Move to next road - update spatial indices
         auto currentRoadIt = roads.find(vehicle.currentRoadId);
         if (currentRoadIt != roads.end()) {
-            currentRoadIt->second.vehicleCount--;
+            currentRoadIt->second.removeVehicle(vehicle.index, vehicle.lane);
         }
         
         vehicle.currentRoadId = vehicle.nextRoadId;
         vehicle.position = 0.0f;  // Start of the new road
         
-        // Assign a lane
+        // Assign a lane based on turn-specific lane logic
         auto nextRoadIt = roads.find(vehicle.currentRoadId);
         if (nextRoadIt != roads.end()) {
-            vehicle.lane = rand() % nextRoadIt->second.laneCount;
-            nextRoadIt->second.vehicleCount++;
-        }
-        
-        // Determine next road in route
-        if (vehicle.routeIndex + 1 < vehicle.route.size()) {
-            int currInt = vehicle.route[vehicle.routeIndex];
-            int nextInt = vehicle.route[vehicle.routeIndex + 1];
-            
-            // Find road connecting these intersections
-            for (const auto& [id, road] : roads) {
-                if ((road.int1Id == currInt && road.int2Id == nextInt) || 
-                    (road.int2Id == currInt && road.int1Id == nextInt)) {
-                    vehicle.nextRoadId = id;
-                    break;
+            // Find appropriate lane for next turn (if any)
+            if (vehicle.routeIndex + 1 < vehicle.route.size()) {
+                int currInt = vehicle.route[vehicle.routeIndex];
+                int nextInt = vehicle.route[vehicle.routeIndex + 1];
+                
+                int key = (currInt << 16) | nextInt;
+                auto connectionIt = roadConnections.find(key);
+                
+                if (connectionIt != roadConnections.end()) {
+                    vehicle.nextRoadId = connectionIt->second;
+                    
+                    // Get appropriate lanes for the upcoming turn
+                    auto& currRoad = nextRoadIt->second;
+                    vector<int> appropriateLanes = currRoad.getLanesForNextRoad(vehicle.nextRoadId, roads);
+                    
+                    if (!appropriateLanes.empty()) {
+                        // Choose a lane more intelligently - prefer middle lanes of appropriate ones
+                        sort(appropriateLanes.begin(), appropriateLanes.end());
+                        if (appropriateLanes.size() > 1) {
+                            // Pick from middle to minimize future lane changes
+                            vehicle.lane = appropriateLanes[appropriateLanes.size() / 2];
+                        } else {
+                            vehicle.lane = appropriateLanes[0];
+                        }
+                    } else {
+                        // If no specific lane requirements, choose middle lane
+                        vehicle.lane = currRoad.laneCount / 2;
+                    }
+                } else {
+                    vehicle.nextRoadId = -1;
+                    vehicle.lane = nextRoadIt->second.laneCount / 2; // Middle lane
                 }
+            } else {
+                vehicle.nextRoadId = -1;
+                vehicle.lane = nextRoadIt->second.laneCount / 2; // Middle lane
             }
-        } else {
-            vehicle.nextRoadId = -1;  // No next road
+            
+            // Add vehicle to the new road
+            nextRoadIt->second.addVehicle(vehicle.index, vehicle.lane, vehicle.position);
         }
     }
 
@@ -448,10 +830,15 @@ public:
             // Update traffic lights
             updateTrafficLights(SIMULATION_TIME_STEP);
             
-            // Update congestion on roads
-            updateRoadCongestion();
+            // Sort vehicles in each lane by position for optimized lookups
+            // Do this less frequently to save processing time
+            if (step % 10 == 0) {  // Every second (10 * 0.1s)
+                for (auto& [id, road] : roads) {
+                    road.sortVehiclesByPosition(vehicles);
+                }
+            }
             
-            // Update vehicle positions
+            // Update vehicle positions with the optimized physics calculation
             for (auto& vehicle : vehicles) {
                 if (!vehicle.hasArrived) {
                     updateVehiclePhysics(vehicle, SIMULATION_TIME_STEP);
@@ -463,6 +850,7 @@ public:
                 float percentComplete = 100.0f * step / totalSteps;
                 cout << "Simulation " << percentComplete << "% complete. ";
                 cout << vehiclesCompleted << "/" << vehicles.size() << " vehicles arrived." << endl;
+                cout << "Lane changes so far: " << laneChangeCount << endl;
             }
             
             // Check if all vehicles have completed their routes
@@ -478,27 +866,13 @@ public:
     }
 
 //===================================
-// SECTION 7: Congestion Modeling
+// SECTION 7: Congestion Modeling - Optimized to use tracked counts
 //===================================
 
 private:
     void updateRoadCongestion() {
-        // Reset vehicle counts for accuracy
-        for (auto& [id, road] : roads) {
-            road.vehicleCount = 0;
-        }
-        
-        // Count vehicles on each road
-        for (const auto& vehicle : vehicles) {
-            if (!vehicle.hasArrived) {
-                auto roadIt = roads.find(vehicle.currentRoadId);
-                if (roadIt != roads.end()) {
-                    roadIt->second.vehicleCount++;
-                }
-            }
-        }
-        
-        // Update congestion factors
+        // No need to recount vehicles as we're tracking them accurately via addVehicle/removeVehicle
+        // Just update congestion factors based on the current count
         for (auto& [id, road] : roads) {
             road.calculateCongestionFactor();
         }
@@ -546,6 +920,8 @@ private:
         cout << "Total waiting time: " << totalWaitingTime << " seconds" << endl;
         cout << "Total emissions: " << totalEmissions << " g CO2" << endl;
         cout << "Emissions per km: " << emissionsPerKm << " g/km" << endl;
+        cout << "Total lane changes: " << laneChangeCount << endl;
+        cout << "Average lane changes per vehicle: " << static_cast<float>(laneChangeCount) / vehicles.size() << endl;
     }
 
 //===================================

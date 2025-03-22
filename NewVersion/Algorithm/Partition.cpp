@@ -14,7 +14,7 @@
 using namespace std;
 
 
-const double M_PI = 3.14159265358979323846;
+const double PI = 3.14159265358979323846;
 
 // Class declaration for InertialFlowPartitioner
 class InertialFlowPartitioner {
@@ -366,7 +366,7 @@ InertialFlowPartitioner::partition(double balanceParam, int numAngles) {
     
     // Try different angles for the spatial ordering
     for (int i = 0; i < numAngles; ++i) {
-        double angle = M_PI * i / numAngles;
+        double angle = PI * i / numAngles;
         
         auto [sources, sinks] = findSourcesAndSinks(angle, balanceParam);
         
