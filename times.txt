@@ -1,0 +1,251 @@
+Time taken to compute routes (selfish v2): 14.469059467315674
+Time taken to compute routes (autoflow v2): 9.837540626525879
+
+Time taken to compute routes (selfish v3): 7.40754771232605
+Time taken to compute routes (autoflow v2): 10.59333848953247
+
+Time taken to compute routes (selfish v3): 3.526536226272583
+Time taken to compute routes (selfish v2): 11.21746301651001
+
+Time taken to compute routes (selfish v3): 8.214131593704224
+Time taken to compute routes (selfish v2): 11.924496412277222
+
+Time taken to compute routes (selfish v3): 8.85581350326538
+Time taken to compute routes (selfish v2): 12.647608518600464
+
+Time taken to compute routes (selfish v3): 15.180138111114502
+Time taken to compute routes (autoflow): 12.09115219116211
+
+Time taken to compute routes (selfish v3): 7.3860039710998535
+Time taken to compute routes (autoflow): 11.666846990585327
+
+
+
+Time taken to compute routes (selfish v3): 7.752105236053467
+Time taken to compute routes (autoflow): 12.921455383300781
+
+Time taken to compute routes (selfish v3): 8.165046215057373
+Time taken to compute routes (autoflow): 12.95787262916565
+
+Time taken to compute routes (selfish v3): 7.9130518436431885
+Time taken to compute routes (autoflow): 12.68283224105835
+
+Time taken to compute routes (selfish v3): 7.957757472991943
+Time taken to compute routes (autoflow): 12.749087810516357
+
+Time taken to compute routes (selfish v3): 7.80431604385376
+Time taken to compute routes (autoflow): 12.239129066467285
+
+Time taken to compute routes (selfish v3): 7.517857074737549
+Time taken to compute routes (autoflow): 12.013527154922485
+
+Time taken to compute routes (selfish v3): 8.167839527130127
+Time taken to compute routes (autoflow): 13.11518907546997
+
+Time taken to compute routes (selfish v3): 7.577550649642944
+Time taken to compute routes (autoflow): 12.433565139770508
+
+Time taken to compute routes (selfish v3): 7.506784439086914
+Time taken to compute routes (autoflow): 11.819267272949219
+
+Time taken to compute routes (selfish v3): 7.378505706787109
+Time taken to compute routes (autoflow): 11.863686800003052
+
+Time taken to compute routes (selfish v3): 7.831040143966675
+Time taken to compute routes (autoflow): 8.138378620147705
+
+Time taken to compute routes (selfish v3): 15.138775110244751
+Time taken to compute routes (autoflow): 12.173295974731445
+
+
+
+Time taken to compute routes (selfish v3): 10.903473138809204
+
+Time taken to compute routes (selfish v3): 10.13960313796997
+Time taken to compute routes (autoflow): 13.299529314041138
+
+Time taken to compute routes (selfish v3): 11.621256828308105
+Time taken to compute routes (autoflow): 14.97645378112793
+
+
+Time taken to compute routes (selfish v3): 10.999148845672607
+
+
+Time taken to compute routes (selfish v3): 11.028541088104248
+
+Time taken to compute routes (selfish v3): 10.758448839187622
+
+Time taken to compute routes (selfish v3): 10.823610067367554
+
+Time taken to compute routes (selfish v3): 10.56397271156311
+Time taken to compute routes (autoflow): 5.505567789077759
+
+Time taken to compute routes (selfish v3): 2.235572338104248
+Time taken to compute routes (autoflow): 1.2303202152252197
+
+Time taken to compute routes (selfish v3): 2.317267417907715
+
+Time taken to compute routes (selfish v3): 1.0548033714294434
+Time taken to compute routes (autoflow): 0.8137717247009277
+
+Time taken to compute routes (selfish v3): 1.314690351486206
+Time taken to compute routes (autoflow): 1.0516681671142578
+
+Time taken to compute routes (selfish v3): 2.3442163467407227
+
+Time taken to compute routes (selfish v3): 1.07716965675354
+Time taken to compute routes (autoflow): 0.7982132434844971
+
+Time taken to compute routes (selfish v3): 1.8688883781433105
+Time taken to compute routes (autoflow): 1.197758674621582
+
+Time taken to compute routes (selfish v3): 1.334282398223877
+Time taken to compute routes (autoflow): 0.9275879859924316
+
+Time taken to compute routes (selfish v3): 1.5640158653259277
+
+Time taken to compute routes (selfish v3): 1.5703561305999756
+Time taken to compute routes (autoflow): 0.9016225337982178
+
+Time taken to compute routes (selfish v3): 1.5580456256866455
+
+Time taken to compute routes (selfish v3): 2.060105562210083
+Time taken to compute routes (autoflow): 1.2188804149627686
+
+Time taken to compute routes (selfish v3): 1.885572910308838
+Time taken to compute routes (autoflow): 1.1355516910552979
+
+Time taken to compute routes (selfish v3): 2.14530348777771
+Time taken to compute routes (autoflow): 1.2149643898010254
+
+Time taken to compute routes (selfish v3): 1.7787749767303467
+Time taken to compute routes (autoflow): 1.130418300628662
+
+Time taken to compute routes (selfish v3): 1.954660415649414
+Time taken to compute routes (autoflow): 1.1977369785308838
+
+Time taken to compute routes (selfish v3): 1.9527480602264404
+Time taken to compute routes (autoflow): 1.2438302040100098
+
+Time taken to compute routes (selfish v3): 1.7843410968780518
+Time taken to compute routes (autoflow): 1.139672040939331
+
+Time taken to compute routes (selfish v3): 18.13486933708191
+Time taken to compute routes (autoflow): 5.768054723739624
+
+
+Time taken to compute routes (selfish v3): 14.035544395446777
+Time taken to compute routes (autoflow): 5.3698201179504395
+
+Time taken to compute routes (selfish v3): 5.303794622421265
+Time taken to compute routes (autoflow): 2.2892260551452637
+
+Time taken to compute routes (selfish v3): 2.466283082962036
+
+Time taken to compute routes (selfish v3): 2.8845977783203125
+Time taken to compute routes (autoflow): 1.428121566772461
+
+Time taken to compute routes (selfish v3): 1.310255765914917
+
+Time taken to compute routes (selfish v3): 1.5471484661102295
+Time taken to compute routes (autoflow): 0.9533929824829102
+
+Time taken to compute routes (selfish v3): 0.9699206352233887
+
+Time taken to compute routes (selfish v3): 1.9522960186004639
+Time taken to compute routes (autoflow): 1.1232359409332275
+
+Time taken to compute routes (selfish v3): 1.0188686847686768
+
+Time taken to compute routes (selfish v3): 2.280721664428711
+Time taken to compute routes (autoflow): 1.2516453266143799
+
+Time taken to compute routes (selfish v3): 2.1992764472961426
+Time taken to compute routes (autoflow): 1.3092575073242188
+
+Time taken to compute routes (selfish v3): 1.2079615592956543
+
+Time taken to compute routes (selfish v3): 1.673203706741333
+Time taken to compute routes (autoflow): 0.9719526767730713
+
+Time taken to compute routes (selfish v3): 2.970397472381592
+
+Time taken to compute routes (selfish v3): 2.2099874019622803
+Time taken to compute routes (autoflow): 1.206538200378418
+
+Time taken to compute routes (selfish v3): 2.3700790405273438
+
+Time taken to compute routes (selfish v3): 2.110910654067993
+Time taken to compute routes (autoflow): 1.2393770217895508
+
+Time taken to compute routes (selfish): 2.0309255123138428
+Time taken to compute routes (autoflow): 1.1863043308258057
+
+Time taken to compute routes (selfish): 2.088627338409424
+Time taken to compute routes (autoflow): 1.2519590854644775
+
+Time taken to compute routes (selfish): 1.9329009056091309
+Time taken to compute routes (autoflow): 1.150916576385498
+
+Time taken to compute routes (selfish): 1.8608438968658447
+Time taken to compute routes (autoflow): 1.138404130935669
+
+Time taken to compute routes (selfish): 1.9241645336151123
+Time taken to compute routes (autoflow): 1.1761541366577148
+
+Time taken to compute routes (selfish): 1.9653518199920654
+Time taken to compute routes (autoflow): 1.1690645217895508
+
+Time taken to compute routes (selfish): 1.9560725688934326
+Time taken to compute routes (autoflow): 1.1725795269012451
+
+Time taken to compute routes (selfish): 2.05572772026062
+Time taken to compute routes (autoflow): 1.284074306488037
+
+Time taken to compute routes (selfish): 2.0601630210876465
+Time taken to compute routes (autoflow): 1.2602310180664062
+
+Time taken to compute routes (selfish): 1.8582754135131836
+Time taken to compute routes (autoflow): 1.1494927406311035
+
+Time taken to compute routes (selfish): 1.9666764736175537
+Time taken to compute routes (autoflow): 1.1725554466247559
+
+Time taken to compute routes (selfish): 2.1588618755340576
+Time taken to compute routes (autoflow): 1.2709910869598389
+
+Time taken to compute routes (selfish): 2.2195210456848145
+Time taken to compute routes (autoflow): 1.3008275032043457
+
+Time taken to compute routes (selfish): 2.1333253383636475
+Time taken to compute routes (autoflow): 1.3003652095794678
+
+Time taken to compute routes (selfish): 2.010122060775757
+Time taken to compute routes (autoflow): 1.2093238830566406
+
+Time taken to compute routes (selfish): 2.0363712310791016
+Time taken to compute routes (autoflow): 1.2635667324066162
+
+Time taken to compute routes (selfish): 2.0237057209014893
+Time taken to compute routes (autoflow): 1.1786468029022217
+
+Time taken to compute routes (selfish): 1.9518177509307861
+Time taken to compute routes (autoflow): 1.165513515472412
+
+Time taken to compute routes (selfish): 2.019369125366211
+Time taken to compute routes (autoflow): 1.1930034160614014
+
+Time taken to compute routes (selfish): 1.9401884078979492
+Time taken to compute routes (autoflow): 1.1699297428131104
+
+Time taken to compute routes (selfish): 2.0014560222625732
+Time taken to compute routes (autoflow): 1.2004618644714355
+
+Time taken to compute routes (selfish): 1.9893364906311035
+Time taken to compute routes (autoflow): 1.2176148891448975
+
+Time taken to compute routes (selfish): 2.0983290672302246
+Time taken to compute routes (autoflow): 1.2315449714660645
+
+Time taken to compute routes (selfish): 2.1563217639923096
+Time taken to compute routes (autoflow): 1.3271725177764893

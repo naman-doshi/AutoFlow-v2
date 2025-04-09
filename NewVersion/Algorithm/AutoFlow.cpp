@@ -203,7 +203,7 @@ void readData() {
         int roadId;
         double s1, s2, s3, e1, e2, e3;
         int startingRoadId, endingRoadId;
-        cin >> vehicle.id >> startingRoadId >> endingRoadId >> s1 >> s2 >> s3 >> e1 >> e2 >> e3;
+        cin >> vehicle.id >> startingRoadId >> endingRoadId >> s1 >> s2 >> s3 >> e1 >> e2 >> e3 >> vehicle.passengerCount >> vehicle.emissionRate;
         vehicle.startingRoadId = startingRoadId;
         vehicle.endingRoadId = endingRoadId;
         vehicle.starting = {s1, s2, s3};

@@ -17,7 +17,7 @@ public:
     float y;
     int roadID;
     vector<int> connectingIntersectionIDs;
-    int partition = -1; // Initialize partition to -1 (unassigned)
+    int partition = 0; // Added partition ID field
 };
 
 class Road {
@@ -40,4 +40,11 @@ public:
     int endingRoadId;
     float position;
     vector<double> starting, ending;
+    int passengerCount = 1;     // Default 1 passenger
+    float emissionRate = 1.0f;  // Default emission rate (normalized)
+    
+    // Calculate priority score (higher is more important)
+    float getPriorityScore() const {
+        return passengerCount * emissionRate;
+    }
 };

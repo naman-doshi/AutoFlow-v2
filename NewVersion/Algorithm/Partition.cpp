@@ -246,7 +246,7 @@ public:
             int u = q.front();
             q.pop();
             
-            if (u != source && u != sink) {
+            if (u != source && u != sink && u < intersections.size()) {
                 // Map index back to intersection ID using the reverse mapping
                 auto it = indexToId.find(u);
                 if (it != indexToId.end()) {
@@ -400,7 +400,7 @@ InertialFlowPartitioner::partition(double balanceParam, int numAngles) {
 
 // Implementation of recursive partitioning
 vector<unordered_set<int>> InertialFlowPartitioner::recursivePartition(int depth, int minSize) {
-    if (intersections.size() <= minSize || depth <= 0) {
+    if (depth <= 0 || intersections.size() <= minSize || intersections.empty()) {
         // Base case: return all intersections as a single partition
         unordered_set<int> allIntersections;
         for (const auto& [id, _] : intersections) {
@@ -412,8 +412,11 @@ vector<unordered_set<int>> InertialFlowPartitioner::recursivePartition(int depth
     // Partition the graph
     auto [part1, part2] = partition();
     
-    // If either partition is empty, return the other as a single partition
-    if (part1.empty() || part2.empty()) {
+    // If either partition is too small or imbalanced, return as single partition
+    if (part1.size() < minSize || part2.size() < minSize || 
+        part1.empty() || part2.empty() ||
+        part1.size() > 0.9 * intersections.size() || 
+        part2.size() > 0.9 * intersections.size()) {
         unordered_set<int> allIntersections;
         for (const auto& [id, _] : intersections) {
             allIntersections.insert(id);

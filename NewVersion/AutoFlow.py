@@ -9,6 +9,7 @@ import random
 from NewVersion.SegmentTree import *
 import time
 import subprocess
+import json
 #=========================================
 MAX_ROAD_SPEED_MPS = 28
 
@@ -129,7 +130,7 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
         input_data += f"{vehicle.id} {vehicle.startingRoadId} {vehicle.endingRoadId} {vehicle.starting[0]} {vehicle.starting[1]} {vehicle.starting[2]} {vehicle.ending[0]} {vehicle.ending[1]} {vehicle.ending[2]}\n"
     
 
-    process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish.exe"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # process.stdin.write(input_data)
     # process.stdin.flush()
     stdout, stderr = process.communicate(input=input_data)
@@ -171,12 +172,8 @@ def sortVehicles(autoflow_vehicles: list[Vehicle]):
     return sorted(
         autoflow_vehicles,
         key = lambda vehicle: (
-            vehicle.passengerCount * euclideanDistance(
-                getRealPositionOnRoad(vehicle.startingActualRoad, vehicle.starting[0], vehicle.starting[1]),
-                getRealPositionOnRoad(vehicle.endingActualRoad, vehicle.ending[0], vehicle.ending[1])
-            ) * vehicle.emissionRate
-        ),
-        reverse=True
+            vehicle.passengerCount * vehicle.emissionRate
+        )
     )
 
 def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: Landscape, autoFlowPercentage : float):
@@ -197,7 +194,7 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
     """
 
     # Start the C++ program as a subprocess
-    autoflowVehicles = sortVehicles(autoflow_vehicles)
+    autoflowVehicles = autoflow_vehicles
     
 
     # Send data to the C++ program
@@ -228,41 +225,83 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
     # vehicles
     input_data += f"{len(autoflowVehicles)}\n"
     for vehicle in autoflowVehicles:
-        input_data += f"{vehicle.id} {vehicle.startingRoadId} {vehicle.endingRoadId} {vehicle.starting[0]} {vehicle.starting[1]} {vehicle.starting[2]} {vehicle.ending[0]} {vehicle.ending[1]} {vehicle.ending[2]}\n"
+        input_data += f"{vehicle.id} {vehicle.startingRoadId} {vehicle.endingRoadId} {vehicle.starting[0]} {vehicle.starting[1]} {vehicle.starting[2]} {vehicle.ending[0]} {vehicle.ending[1]} {vehicle.ending[2]} {vehicle.passengerCount} {vehicle.emissionRate}\n"
     
-    process = subprocess.Popen(["NewVersion/Algorithm/AutoFlow"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    # process.stdin.write(input_data)
-    # process.stdin.flush()
-    stdout, stderr = process.communicate(input=input_data)
-    
-    # Check for errors
-    if stderr:
-        print(f"Error from C++ program: {stderr}")
-    
+    for i in range(5):
 
-    actual_output = stdout.split("\n")
-    # print(actual_output)
-    ind = actual_output.index("---")
-    actual_output = actual_output[ind+1:]
-    # print(actual_output)
-    stdout = "\n".join(stdout.split('\n')[:ind])
+        process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish2.exe"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # process.stdin.write(input_data)
+        # process.stdin.flush()
+        stdout, stderr = process.communicate(input=input_data)
+        
+        # Check for errors
+        if stderr:
+            print(f"Error from C++ program: {stderr}")
+        
 
-    # Read the output from the C++ program
-    #output_data = process.stdout.readline()
-    #print(f"C++ says: {output_data}")
-    print(stdout)
+        actual_output = stdout.split("\n")
+        # print(actual_output)
+        ind = actual_output.index("---")
+        actual_output = actual_output[ind+1:]
+        # print(actual_output)
+        stdout = "\n".join(stdout.split('\n')[:ind])
 
-    process.stdin.close()
-    process.wait()
+        # Read the output from the C++ program
+        #output_data = process.stdout.readline()
+        #print(f"C++ says: {output_data}")
+        print(stdout)
 
-    routes = {}
-    for vehicle in actual_output:
-        if len(vehicle) == 0:
-            continue
-        i = vehicle.split()
-        #print(i)
-        routes[int(i[0])] = [landscape.intersections[int(j)] for j in i[1:]]
+        process.stdin.close()
+        process.wait()
 
+        routes = {}
+        for vehicle in actual_output:
+            if len(vehicle) == 0:
+                continue
+            i = vehicle.split()
+            #print(i)
+            routes[int(i[0])] = [landscape.intersections[int(j)] for j in i[1:]]
+        
+        sim_data = {
+            "roads": [
+                {
+                    "id": road.id,
+                    "length": road.length,
+                    "speed_limit": road.speedLimit,
+                    "capacity": road.capacity,
+                    "lane_count": road.laneCount,
+                    "int1_id": road.int1.id if road.int1 else -1,
+                    "int2_id": road.int2.id if road.int2 else -1
+                } for road in landscape.roads
+            ],
+            "intersections": [
+                {
+                    "id": intersection.id,
+                    "x": intersection.x,
+                    "y": intersection.y,
+                    "traffic_light_duration": intersection.trafficLightDuration,
+                    "connecting_roads": [r.id for r in intersection.connectingRoads],
+                    "road_count": intersection.roadCount  
+                } for intersection in landscape.intersections.values()
+            ],
+            "vehicles": [
+                {
+                    "id": vehicle.id,
+                    "starting_road": vehicle.startingRoadId,
+                    "ending_road": vehicle.endingRoadId,
+                    "emission_rate": vehicle.emissionRate,
+                    "passenger_count": vehicle.passengerCount,
+                    "route": [intersection.id for intersection in routes.get(vehicle.id, [])]
+                } for vehicle in autoflow_vehicles
+            ]
+        }
+
+        with open("simulation_data.json", "w") as f:
+            json.dump(sim_data, f)
+        
+        subprocess.run(["TrafficSimulatorV2.exe"])
+
+   
     # print(len(landscape.intersections))
 
 

@@ -3,11 +3,12 @@ from NewVersion.AutoFlow import *
 import random
 import time
 import json
+import os
 
-toTest = 100
+toTest = 1000
 
-landscape = Landscape(500, 
-                      500,
+landscape = Landscape(1000, 
+                      1000,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
 landscape.generate()
@@ -51,12 +52,9 @@ for i in range(toTest):
 end = time.time()
 print("Time taken to generate vehicles: ", end - start)
 
-allRoutes = computeRoutes(autoFlowVehicles, autoFlowVehicles, landscape)
+allRoutes2 = computeRoutes([], autoFlowVehicles, landscape)
 print("Time taken to compute routes: ", time.time() - end)
 
-landscape.show()
-
-# Save routes and simulation data to a file for C++ simulator
 sim_data = {
     "roads": [
         {
@@ -86,7 +84,7 @@ sim_data = {
             "ending_road": vehicle.endingRoadId,
             "emission_rate": vehicle.emissionRate,
             "passenger_count": vehicle.passengerCount,
-            "route": [intersection.id for intersection in allRoutes.get(vehicle.id, [])]
+            "route": [intersection.id for intersection in allRoutes2.get(vehicle.id, [])]
         } for vehicle in autoFlowVehicles
     ]
 }
@@ -95,6 +93,13 @@ with open("simulation_data.json", "w") as f:
     json.dump(sim_data, f)
 
 print(f"Saved simulation data for {len(autoFlowVehicles)} vehicles to simulation_data.json")
+
+subprocess.run(["TrafficSimulatorV2.exe"])
+
+# delete vehicle_road_speeds.csv
+os.remove("vehicle_road_speeds.csv")
+
+
 
 # OPTIONAL (storing visualisation)
 #landscape.storeImage("landscape.png")
