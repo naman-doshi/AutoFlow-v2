@@ -94,7 +94,7 @@ with open("simulation_data.json", "w") as f:
 
 print(f"Saved simulation data for {len(autoFlowVehicles)} vehicles to simulation_data.json")
 
-subprocess.run(["TrafficSimulatorV2.exe"])
+subprocess.run(["TrafficSimulatorV2"])
 
 # delete vehicle_road_speeds.csv
 os.remove("vehicle_road_speeds.csv")

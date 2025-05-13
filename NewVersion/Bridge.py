@@ -174,52 +174,14 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
     factor = 3
     
     # ========================================= ROAD GENERATION =========================================
-    for road in landscape.roads:
-        roadTuple = (road.int1.coordinates(), road.int2.coordinates(), road.laneCount)
-        virtInts = []
-        
-        for intersection in road.virtualInts:
-            if intersection.position != 1:
-                # if the intersection is not a real intersection, we don't need to send the traffic light pattern
-                virtInts.append(VirtualIntMsg(
-                    intersection.id, 
-                    0, 
-                    0, 
-                    intersection.lane, 
-                    intersection.direction, 
-                    intersection.position,
-                    [],
-                    0,
-                    road.id))
-            else:
-                # otherwise, we need to send the traffic light pattern too
-                associatedInt = intersection.correspondingRealIntersection
-                virtInts.append(VirtualIntMsg(
-                    intersection.id, 
-                    0, 
-                    0, 
-                    intersection.lane, 
-                    intersection.direction, 
-                    intersection.position,
-                    associatedInt.trafficLightPattern,
-                    associatedInt.trafficLightDuration,
-                    road.id))
-        
-        # create a road init message, and scale the coordinates by a factor of 3 to make it look cohesive on the frontend
-        allRoads.append(RoadInitMsg(road.id, 
-                                    Vector2Message(roadTuple[0][0]*factor, roadTuple[0][1]*factor), 
-                                    Vector2Message(roadTuple[1][0]*factor, roadTuple[1][1]*factor), 
-                                    roadTuple[2], 
-                                    road.speedLimit,
-                                    road.capacity,
-                                    virtInts))
-
-    # populate the possible starting positions
     allStartingPositions = []
     allEndingPositions = []
+    autoFlowVehicles = []
+
     for road in landscape.roads:
-        allStartingPositions += road.availablePositions()
-        allEndingPositions += road.availablePositions()
+        blah = [[road] + i for i in road.availablePositions()]
+        allStartingPositions += blah
+        allEndingPositions += blah
 
     # ========================================= VEHICLE GENERATION =========================================
     # make sure we have >= 1 vehicle
@@ -227,7 +189,6 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
     totalVehicleCount = max(int(vehicleDensity * len(allStartingPositions) / 100 / 100), 1)
     print("Total vehicle count: ", totalVehicleCount)
     autoFlowVehicleCount = max(1, int(totalVehicleCount * autoflow_percentage / 100))
-    selfishVehicleCount = totalVehicleCount - autoFlowVehicleCount
 
     autoFlowVehicles = []
     selfishVehicles = []
@@ -251,14 +212,18 @@ async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDe
             vehicle.setRoutingSystem(0)
             selfishVehicles.append(vehicle)
 
-        # set starting and ending positions
         startPos = random.choice(allStartingPositions)
+        # print(len(startPos))
+        vehicle.startingActualRoad = startPos[0]
+        vehicle.startingRoadId = startPos[0].id
         allStartingPositions.remove(startPos)
-        vehicle.setLocation(startPos)
+        vehicle.starting = startPos[1:]
 
         endPos = random.choice(allEndingPositions)
+        vehicle.endingActualRoad = endPos[0]
+        vehicle.endingRoadId = endPos[0].id
         allEndingPositions.remove(endPos)
-        vehicle.setDestination(endPos)
+        vehicle.ending = endPos[1:]
     
     allVehicles = autoFlowVehicles + selfishVehicles
 

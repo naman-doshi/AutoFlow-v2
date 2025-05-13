@@ -67,6 +67,7 @@ class Node:
 # Main Functions
 # ===============================================================================================
 
+
 def computeRoutes(selfish_vehicles: list[Vehicle], autoflow_vehicles: list[Vehicle], landscape: Landscape):
     """
     Computes the routes for selfish vehicles first, then AutoFlow vehicles.
@@ -130,7 +131,7 @@ def computeSelfishVehicleRoutes(selfish_vehicles: list[Vehicle], landscape: Land
         input_data += f"{vehicle.id} {vehicle.startingRoadId} {vehicle.endingRoadId} {vehicle.starting[0]} {vehicle.starting[1]} {vehicle.starting[2]} {vehicle.ending[0]} {vehicle.ending[1]} {vehicle.ending[2]}\n"
     
 
-    process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish.exe"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     # process.stdin.write(input_data)
     # process.stdin.flush()
     stdout, stderr = process.communicate(input=input_data)
@@ -229,7 +230,7 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
     
     for i in range(5):
 
-        process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish2.exe"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(["NewVersion/Algorithm/NaiveSelfish2"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         # process.stdin.write(input_data)
         # process.stdin.flush()
         stdout, stderr = process.communicate(input=input_data)
@@ -299,7 +300,7 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
         with open("simulation_data.json", "w") as f:
             json.dump(sim_data, f)
         
-        subprocess.run(["TrafficSimulatorV2.exe"])
+        subprocess.run(["NewVersion/TrafficSimulatorV2"])
 
    
     # print(len(landscape.intersections))

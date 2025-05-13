@@ -9,8 +9,6 @@ import numpy as np
 import dill
 import sys
 
-# just get rid of virtual intersections
-
 sys.setrecursionlimit(10**6)
 
 PI = 3.1415926535
@@ -118,7 +116,15 @@ class Intersection:
         Connects the intersection to another intersection or virtual intersection with an automatically generated road.
         '''
         
-        if type(secondInt) == Intersection:
+        if type(secondInt) == VirtualIntersection:
+            
+            if secondInt in self.connectingVirtualInts:
+                return
+            
+            self.connectingVirtualInts.append(secondInt)
+            secondInt.connectingInts.append(self)
+        
+        elif type(secondInt) == Intersection:
             if secondInt in self.connectingInts:
                 return
             
@@ -139,9 +145,16 @@ class Intersection:
         '''
         Disconnects the intersection from another intersection or virtual intersection.
         '''
-    
         
-        if type(secondInt) == Intersection:
+        if type(secondInt) == VirtualIntersection:
+            
+            if secondInt not in self.connectingVirtualInts:
+                return
+            
+            self.connectingVirtualInts.remove(secondInt)
+            secondInt.connectingInts.remove(self)
+        
+        elif type(secondInt) == Intersection:
             
             if secondInt not in self.connectingInts:
                 return
@@ -213,8 +226,6 @@ class Road:
     def __init__(self, int1 : Intersection, int2 : Intersection):
         self.int1 = int1
         self.int2 = int2
-
-        self.positions = []
         
         # id
         global allRoads
@@ -241,8 +252,13 @@ class Road:
         self.traversalTime = self.length / self.speedLimit
         self.capacity = self.laneCount * self.length // VEHICLE_LENGTH_METRES
         
+        # virtual intersections on the road
+        self.associatedVirtualIntersections = []
+        self.virtualInts = []
+        
     
     def populatePositions(self, landscape):
+        positions = []
 
         '''
         Populates the road with virtual intersections at regular intervals, and connects them to the real intersections
@@ -254,14 +270,29 @@ class Road:
         '''
         
         for direction in [1, -1]:
+            lanes = []
             
             for i in range(self.laneCount):
                 
                 # setting the starting and ending intersections depending on the direction
+                if direction == 1:
+                    startingInt = self.int1
+                    endingInt = self.int2
+                else:
+                    startingInt = self.int2
+                    endingInt = self.int1
                 
                 
                 # lane is a 2D list of virtual intersections, with a each row being a lane
-                # vint = VirtualIntersection(self, 0, direction, i, correspondingRealIntersection=startingInt)
+                vint = VirtualIntersection(self, 0, direction, i, correspondingRealIntersection=startingInt)
+                vint.connect(startingInt)
+
+                lane = [vint]
+                
+                # creating the first virtual intersection and associating it with the starting intersection
+                self.virtualInts.append(vint)
+                landscape.virtualIntersections.append(vint)
+                self.associatedVirtualIntersections.append(vint)
                 
                 # creating the rest of the virtual intersections at regular intervals
                 # since lane changes/spawns shouldn't occur too close to the endpoints of the road,
@@ -272,16 +303,55 @@ class Road:
                 while j < 0.9:
 
                     # creating the virtual intersection and associating it with the road
-                    self.positions.append([j, direction, i])
+                    virtInt = VirtualIntersection(self, j, direction, i)
+
+                    self.virtualInts.append(virtInt)
+                    landscape.virtualIntersections.append(virtInt)
+                    
+                    # setting backward and forward connections
+                    virtInt.backward = lane[-1]
+                    lane[-1].forward = virtInt
+                    
+                    lane.append(virtInt)
+
+                    positions.append([j, direction, i])
                     
                     j += max(10/self.length, 0.1)
+                    
                 
                 # creating the last virtual intersection and associating it with the ending intersection
+                vint = VirtualIntersection(self, 1, direction, i, correspondingRealIntersection=endingInt)
+                lane.append(vint)
+                vint.connect(endingInt)
+                lane[-2].forward = vint
+                vint.backward = lane[-2]
+                self.virtualInts.append(vint)
+                landscape.virtualIntersections.append(vint)
+                self.associatedVirtualIntersections.append(vint)
+                
+
+                lanes.append(lane)
+        
+        self.positions = positions
             
     
-    def availablePositions(self):
+    def findAssociatedVirtualIntersection(self, intersection, lane, dir):
+        # helper method to find an associated virtual intersection given a real intersection, lane and direction
+        for virtInt in self.associatedVirtualIntersections:
+            if virtInt.correspondingRealIntersection == intersection and virtInt.lane == lane and virtInt.direction == dir:
+                return virtInt
+        return None
+    
+    def availableVIPositions(self):
         # returns all the virtual intersections on the road that don't have a corresponding real intersection
         # these are suitable for starting and ending points for vehicles
+        pos = []
+        for virt in self.virtualInts:
+            if virt.correspondingRealIntersection == None:
+                pos.append(virt)
+        return pos
+
+    def availablePositions(self):
         return self.positions
     
     
@@ -309,6 +379,92 @@ def getRealPositionOnRoad(road: Road, position: float, direction : int) -> tuple
     y = int1[1] + (int2[1] - int1[1]) * position
     return (x, y)
 
+
+class VirtualIntersection(Intersection):
+    '''
+    A virtual intersection (VI) is a point on a road where lane changes and vehicle spawns can occur.
+    It inherits from the Intersection class.
+    '''
+    def __init__(self, road : Road, position : float, direction : int, lane : int, correspondingRealIntersection = None) -> None:
+        x, y = getRealPositionOnRoad(road, position, direction)
+        super().__init__(x, y)
+        
+        # it has several unique attributes that describe its position on the road
+        # this is all to avoid being reliant on its real position, which could change on the frontend
+        self.road = road
+        self.lane = lane
+        self.direction = direction
+        self.position = position
+        self.correspondingRealIntersection = correspondingRealIntersection
+        self.left = None
+        self.right = None
+        self.forward = None
+        self.backward = None
+    
+    def connect(self, secondInt):
+
+        '''
+        Connects the virtual intersection to another virtual intersection or real intersection.
+        '''
+        
+        if type(secondInt) == VirtualIntersection:
+            if secondInt in self.connectingVirtualInts:
+                return
+            self.connectingVirtualInts.append(secondInt)
+            secondInt.connectingVirtualInts.append(self)
+            
+            # if both virtual intersections have corresponding real intersections, connect the roads that both of them lie on
+            if self.correspondingRealIntersection != None and secondInt.correspondingRealIntersection != None:
+                self.connectingRoads.append(secondInt.road)
+                secondInt.connectingRoads.append(self.road)
+        
+        elif type(secondInt) == Intersection:
+            if secondInt in self.connectingInts:
+                return
+            self.connectingInts.append(secondInt)
+            secondInt.connectingVirtualInts.append(self)
+    
+    def disconnect(self, secondInt):
+
+        '''
+        Disconnects the virtual intersection from another virtual intersection or real intersection.
+        '''
+        
+        if type(secondInt) == VirtualIntersection:
+            if secondInt not in self.connectingVirtualInts:
+                return
+            
+            self.connectingVirtualInts.remove(secondInt)
+            secondInt.connectingVirtualInts.remove(self)
+            
+            if self.correspondingRealIntersection != None and secondInt.correspondingRealIntersection != None:
+                self.connectingRoads.remove(secondInt.road)
+                secondInt.connectingRoads.remove(self.road)
+        
+        elif type(secondInt) == Intersection:
+            if secondInt not in self.connectingInts:
+                return
+            self.connectingInts.remove(secondInt)
+            secondInt.connectingVirtualInts.remove(self)
+    
+    def delete(self, landscape):
+        '''
+        Completely removes the virtual intersection from the landscape.
+
+        A VI is deleted when it is no longer needed, meaning its lane can't be used to turn on to any roads.
+        Deleting a VI means that cars must change lanes to non-deleted VIs to turn, and avoids the situation of
+        cars being stuck in a lane that cannot turn.
+        '''
+        for intersection in self.connectingInts:
+            self.disconnect(intersection)
+        for intersection in self.connectingVirtualInts:
+            self.disconnect(intersection)
+        if self in self.road.associatedVirtualIntersections:
+            self.road.associatedVirtualIntersections.remove(self)
+        if self in self.road.virtualInts:
+            self.road.virtualInts.remove(self)
+        if self in landscape.virtualIntersections:
+            landscape.virtualIntersections.remove(self)
 
 class Landscape:
     '''
@@ -351,6 +507,7 @@ class Landscape:
         self.isolatedCoords = []
 
         self.roads = []
+        self.virtualIntersections = []
 
         # lookup table for quickly accessing intersections based on their coordinates
         self.lookupTable : dict[tuple[float, float], Intersection] = {}
@@ -372,7 +529,7 @@ class Landscape:
         '''
         self.intersections = {}
         self.roads = []
-        #self.virtualIntersections = []
+        self.virtualIntersections = []
         self.lookupTable = {}
         self.GRAPH = defaultdict(dict)
         global allRoads
@@ -879,14 +1036,6 @@ class Landscape:
         #             print("Deleting virtual intersection")
         #             virtual.delete(self)
     
-    def cleanGraph(self):
-        newGraph = defaultdict(dict)
-        for i, j in self.GRAPH.items():
-            for k, v in j.items():
-                if v != None:
-                    newGraph[i][k] = v
-        self.GRAPH = newGraph
-    
     
     def gen(self):
         '''
@@ -903,9 +1052,8 @@ class Landscape:
             intersection.create_traffic_light(self)
         for road in self.roads:
             road.populatePositions(self)
-        self.cleanGraph()
-        # for id, intersection in self.intersections.items():
-        #     self.connectMultiIntersection(intersection)
+        for id, intersection in self.intersections.items():
+            self.connectMultiIntersection(intersection)
 
     def generate(self):
         '''
@@ -1018,10 +1166,8 @@ class Landscape:
             for road in self.roads:
                 road.populatePositions(self)
             
-            self.cleanGraph()
-            
-            # for id, intersection in self.intersections.items():
-            #     self.connectMultiIntersection(intersection)
+            for id, intersection in self.intersections.items():
+                self.connectMultiIntersection(intersection)
 
         print(f"Landscape loaded successfully from {path}.")
             
