@@ -1011,11 +1011,17 @@ private:
             string line, value;
             vector<int> roadIds;
 
+            //float avgPassengerTime = 0.0f;
+            // take it in
+
             // Read header row to get road IDs
             if (getline(csvFile, line)) {
                 stringstream ss(line);
                 
                 // Skip the first column header
+                // getline(ss, value, ',');
+                // avgPassengerTime = stof(value);
+
                 getline(ss, value, ',');
                 
                 // Read road IDs from header
@@ -1056,6 +1062,9 @@ private:
             cerr << "Failed to open vehicle speed report file." << endl;
             return;
         }
+        
+        // avgPassengerTime = vehiclesCompleted > 0 ? totalPassengerTime / vehiclesCompleted : 0;
+        // speedReportFile << avgPassengerTime << ",";
         
         // Write header with Road IDs
         speedReportFile << "Vehicle ID,";

@@ -21,12 +21,13 @@ landscape.generate()
 allStartingPositions = []
 allEndingPositions = []
 for road in landscape.roads:
-    allStartingPositions += road.availablePositions()
-    allEndingPositions += road.availablePositions()
+    positionObject = [[road] + i for i in road.availablePositions()]
+    allStartingPositions += positionObject
+    allEndingPositions += positionObject
 
 # ========================================= VEHICLE GENERATION =========================================
-autoFlowVehicleCount = 0
-selfishVehicleCount = 1
+autoFlowVehicleCount = 5
+selfishVehicleCount = 0
 
 totalVehicleCount = autoFlowVehicleCount + selfishVehicleCount
 autoFlowVehicles = []
@@ -53,12 +54,17 @@ for i in range(totalVehicleCount):
 
     # set starting and ending positions
     startPos = random.choice(allStartingPositions)
+    # print(len(startPos))
+    vehicle.startingActualRoad = startPos[0]
+    vehicle.startingRoadId = startPos[0].id
     allStartingPositions.remove(startPos)
-    vehicle.setLocation(startPos)
-
+    vehicle.starting = startPos[1:]
+    
     endPos = random.choice(allEndingPositions)
+    vehicle.endingActualRoad = endPos[0]
+    vehicle.endingRoadId = endPos[0].id
     allEndingPositions.remove(endPos)
-    vehicle.setDestination(endPos)
+    vehicle.ending = endPos[1:]
 
 # # ========================================= ROUTE COMPUTATION =========================================
 

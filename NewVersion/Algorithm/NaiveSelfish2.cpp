@@ -2,8 +2,79 @@
 #include <chrono> // For timing functionality
 using namespace std;
 #include "Landscape.cpp"
+#pragma GCC target ("avx2")
+#pragma GCC optimization ("O3")
+#pragma GCC optimization ("unroll-loops")
 
 #define rep(i, a, b) for(int i = a; i < (b); ++i)
+
+// Lazy Segment Tree implementation for reservation table
+struct Lazy {
+    int v;
+    bool inc;
+    void operator+=(const Lazy &b) {
+        if (b.inc) v += b.v;
+        else v = b.v, inc = false;
+    }
+};
+ 
+struct Node {
+    int mn, sum;
+    Node operator+(const Node &b) {
+        return {min(mn, b.mn), sum + b.sum};
+    }
+    void upd(const Lazy &u, int l, int r) {
+        if (u.inc) mn += u.v, sum += u.v * (r - l + 1);
+        else mn = u.v, sum = u.v * (r - l + 1);
+    }
+};
+ 
+template<class T, class U, int SZ> struct LazySeg {
+    T NID;
+    U UID;
+    vector<T> seg;
+    vector<U> lazy;
+    void init(T _NID, U _UID) {
+        NID = _NID;
+        UID = _UID;
+        seg.resize(2 * SZ, NID);
+        lazy.resize(2 * SZ, UID);
+    }
+    void pull(int i) {
+        seg[i] = seg[2 * i] + seg[2 * i + 1];
+    }
+    void push(int i, int l, int r) {
+        seg[i].upd(lazy[i], l, r);
+        if (l != r)  rep(j, 0, 2) lazy[2 * i + j] += lazy[i];
+        lazy[i] = UID;
+    }
+    void build() {
+        for (int i = SZ - 1; i > 0; i--) pull(i);
+    }
+    void upd(int lo, int hi, U val, int i = 1, int l = 0, int r = SZ - 1) {
+        push(i, l, r);
+        if (r < lo || l > hi) return;
+        if (lo <= l && r <= hi) {
+            lazy[i] += val;
+            push(i, l, r);
+            return;
+        }
+        int m = (l + r) / 2;
+        upd(lo, hi, val, 2 * i, l, m);
+        upd(lo, hi, val, 2 * i + 1, m + 1, r);
+        pull(i);
+    }
+    T query(int lo = 0, int hi = SZ - 1, int i = 1, int l = 0, int r = SZ - 1) {
+        push(i, l, r);
+        if (r < lo || l > hi) return NID;
+        if (lo <= l && r <= hi) return seg[i];
+        int m = (l + r) / 2;
+        return query(lo, hi, 2 * i, l, m) + query(lo, hi, 2 * i + 1, m + 1, r);
+    }
+    T& operator[](int i) {
+        return seg[i + SZ];
+    }
+};
 
 // Basic data structures
 unordered_map<int, Intersection> intersections;
@@ -11,6 +82,19 @@ unordered_map<int, Road> roads;
 unordered_map<int, Vehicle> vehicles;
 vector<pair<int, Vehicle>> vehicleVector;
 unordered_map<int, unordered_map<int, Road>> graph;
+
+// Reservation table for each road
+unordered_map<int, LazySeg<Node, Lazy, 1 << 15>> reservationTable;
+mutex reservationTableMutex;
+float autoFlowPercentage = 0.9f; // Congestion control parameter
+
+// Add a struct to hold the reservation updates
+struct ReservationUpdate {
+    int roadId;
+    int startTime;
+    int endTime;
+    int value;
+};
 
 class PathNode {
 public:
@@ -39,13 +123,13 @@ public:
 
 float avgSpeed = 0;
 float avgIntersectionDelay = 2.0f;
+float totalIntersectionDelays = 0;
+float avgSegmentLength = 0;
 
 // Simple heuristic function - Euclidean distance
 float heuristic(const Intersection& a, const Intersection& b) {
     return sqrt(pow(a.x - b.x, 2) + pow(a.y - b.y, 2)) / avgSpeed;
 }
-
-
 
 map<int, map<int, float>> congestionMap; // Map to store congestion levels (car, road) -> avg speed
 
@@ -67,21 +151,21 @@ void readData() {
         int int1Id, int2Id;
         cin >> road.id >> road.length >> road.speedLimit >> road.capacity >> int1Id >> int2Id >> road.traversalTime >> road.laneCount;
         avgSpeed += road.speedLimit;
+        avgSegmentLength += road.length; // Added to track average segment length
         road.int1Id = int1Id;
         road.int2Id = int2Id;
         intersections[int1Id].connectingIntersectionIDs.push_back(int2Id);
         intersections[int2Id].connectingIntersectionIDs.push_back(int1Id);
         cin >> numPositions;
-        //cout << numAssociatedVirtualIntersections << endl;
         road.positions = vector<vector<double>>(numPositions, vector<double>(3));
         for (int j = 0; j < numPositions; ++j) {
             cin >> road.positions[j][0] >> road.positions[j][1] >> road.positions[j][2];
         }
-        //cout << road.associatedVirtualIntersectionIds.size() << endl;
         roads[road.id] = road;
     }
 
     avgSpeed /= numRoads;
+    avgSegmentLength /= numRoads; // Calculate average segment length
 
     int numGraphEntries;
     cin >> numGraphEntries;
@@ -164,6 +248,67 @@ void readData() {
         cout << "Loaded vehicle-road speeds from CSV." << endl;
     }
 }
+// Combined traversal time calculation
+float calculateTraversalTime(Vehicle& vehicle, const Road& road, const Intersection& current, 
+    const Intersection& next, float arrivalTime) {
+    int currentTime = max((int)ceil(arrivalTime), 0);
+
+    // Get current congestion level from reservation table
+    float congestion;
+    {
+        lock_guard<mutex> lock(reservationTableMutex);
+        congestion = reservationTable[road.id].query(currentTime, currentTime).sum / autoFlowPercentage;
+    }
+
+    // Calculate wait time (binary search for earliest slot)
+    int waitTime = 0;
+    {
+        lock_guard<mutex> lock(reservationTableMutex);
+        int l = currentTime + 1;
+        int r = min(currentTime + 1000, (1 << 15) - 1);
+        while (l < r) {
+            int m = (l + r) / 2;
+            if (reservationTable[road.id].query(currentTime, m).mn < autoFlowPercentage * road.capacity) {
+                r = m;
+            } else {
+                l = m + 1;
+            }
+        }
+        waitTime = r - currentTime;
+    }
+
+    // BASE TIME CALCULATION - Combine both approaches
+    float baseTravelTime;
+
+    // If we have historical data for this vehicle+road, use it as the baseline
+    if (congestionMap[vehicle.id][road.id] > 0) {
+        // Historical average speed as baseline
+        float historicalSpeed = congestionMap[vehicle.id][road.id];
+        baseTravelTime = road.length / historicalSpeed;
+
+        // Apply current congestion adjustment from reservation table
+        float densityFactor = min(1.0f, congestion / road.capacity);
+        float adjustmentFactor = 1.0f + densityFactor; // Increase travel time based on current congestion
+
+        // Blend historical with current conditions (weighted average)
+        baseTravelTime = 0.4f * baseTravelTime + 0.6f * (road.traversalTime * adjustmentFactor);
+    
+    } else {
+        // Fall back to the existing congestion model if no historical data
+        float densityFactor = min(1.0f, congestion / road.capacity);
+        float speedReduction = 1.0f - 0.75f * densityFactor;
+        baseTravelTime = road.traversalTime / speedReduction;
+    }
+
+    // Traffic light delay calculation (unchanged)
+    float cycleTime = next.trafficLightDuration * next.roadCount;
+    float trafficLightDelay = cycleTime * 0.5f * (1.0f + 0.5f * min(1.0f, congestion / road.capacity));
+
+    totalIntersectionDelays += 1;
+    avgIntersectionDelay = (avgIntersectionDelay * (totalIntersectionDelays - 1) + trafficLightDelay) / totalIntersectionDelays;
+
+    return waitTime + baseTravelTime + trafficLightDelay;
+}
 
 // Simple traversal time calculation - using only the road's base traversal time
 float calculateTraversalTime(Vehicle & vehicle, Road& road) {
@@ -171,7 +316,7 @@ float calculateTraversalTime(Vehicle & vehicle, Road& road) {
     if (congestionMap[vehicle.id][road.id] == 0)
         return road.traversalTime;
     else 
-        return road.length * congestionMap[vehicle.id][road.id];
+        return road.length / congestionMap[vehicle.id][road.id];
 }
 
 // Contraction Hierarchies data structures
@@ -513,8 +658,8 @@ vector<int> expandShortcut(int fromId, int toId) {
     return {fromId, toId};
 }
 
-// CH bidirectional search
-vector<Intersection> CHQuery(int startId, int endId) {
+// CH bidirectional search with reservation table updates
+vector<Intersection> CHQuery(int vehicleId, int startId, int endId, vector<ReservationUpdate>& localUpdates) {
     // Early exit for same node
     if (startId == endId) {
         return {intersections[startId]};
@@ -656,20 +801,49 @@ vector<Intersection> CHQuery(int startId, int endId) {
         fullPath.push_back(intersections[id]);
     }
     
-    // Validate the path to ensure all consecutive nodes are connected
+    // Validate and update the reservation table along the path
     bool isValid = true;
     string validationError = "";
+    float arrivalTime = 0.0f;
     
-    // Validate that adjacent nodes in path are connected by roads in the original graph
     for (size_t i = 0; i < fullPath.size() - 1; i++) {
         int fromId = fullPath[i].id;
         int toId = fullPath[i + 1].id;
         
-        // Check only in the original graph this time
+        // Check if the nodes are connected in the original graph
         bool connected = false;
-        if ((graph.count(fromId) && graph[fromId].count(toId)) || 
-            (graph.count(toId) && graph[toId].count(fromId))) {
+        if ((graph.count(fromId) && graph[fromId].count(toId))) {
             connected = true;
+            
+            // Update reservation table for this road segment
+            Road& road = graph[fromId][toId];
+            float traversalTime = calculateTraversalTime(vehicles[vehicleId], road, fullPath[i], fullPath[i+1], arrivalTime);
+            
+            // Add to local updates
+            localUpdates.push_back({
+                road.id,
+                static_cast<int>(ceil(arrivalTime)),
+                static_cast<int>(ceil(arrivalTime + traversalTime)),
+                1
+            });
+            
+            arrivalTime += traversalTime;
+        }
+        else if ((graph.count(toId) && graph[toId].count(fromId))) {
+            connected = true;
+            // For bidirectional roads, use the reverse direction
+            Road& road = graph[toId][fromId];
+            float traversalTime = calculateTraversalTime(vehicles[vehicleId], road, fullPath[i], fullPath[i+1], arrivalTime);
+            
+            // Add to local updates
+            localUpdates.push_back({
+                road.id,
+                static_cast<int>(ceil(arrivalTime)),
+                static_cast<int>(ceil(arrivalTime + traversalTime)),
+                1
+            });
+            
+            arrivalTime += traversalTime;
         }
         
         if (!connected) {
@@ -681,7 +855,6 @@ vector<Intersection> CHQuery(int startId, int endId) {
     }
     
     if (!isValid) {
-        // Log the error but don't halt the program
         cerr << "Path validation failed after expansion: " << validationError << endl;
         
         // For debugging purposes, print the invalid path
@@ -691,14 +864,21 @@ vector<Intersection> CHQuery(int startId, int endId) {
         }
         cerr << endl;
         
-        // Return empty path to indicate failure
         return {};
     }
     
     return fullPath;
 }
 
-// CH-based A* implementation
+// Apply batched reservation updates
+void applyReservationUpdates(const vector<ReservationUpdate>& updates) {
+    lock_guard<mutex> lock(reservationTableMutex);
+    for (const auto& update : updates) {
+        reservationTable[update.roadId].upd(update.startTime, update.endTime, {update.value, true});
+    }
+}
+
+// CH-based A* implementation with reservation table
 void CHPathfinding() {
     auto startTime = chrono::high_resolution_clock::now();
     
@@ -709,6 +889,11 @@ void CHPathfinding() {
     
     cout << "Starting CH-based pathfinding for " << vehicles.size() << " vehicles..." << endl;
     
+    // Define the batch size for reservation updates
+    const int BATCH_UPDATE_SIZE = 50; // Tune this value
+    vector<ReservationUpdate> localUpdates;
+    localUpdates.reserve(BATCH_UPDATE_SIZE * 2);
+    
     // Process each vehicle sequentially
     for (auto& [vehicleId, vehicle] : vehicles) {
         processedCount++;
@@ -716,6 +901,12 @@ void CHPathfinding() {
         // Log progress every 100 vehicles
         if (processedCount % 100 == 0) {
             cout << "Processed " << processedCount << "/" << vehicles.size() << " vehicles..." << endl;
+            
+            // Apply any accumulated updates
+            if (!localUpdates.empty()) {
+                applyReservationUpdates(localUpdates);
+                localUpdates.clear();
+            }
         }
         
         // Determine starting and ending intersections
@@ -735,8 +926,8 @@ void CHPathfinding() {
             ending = intersections[endingRoad.int1Id];
         }
         
-        // Use CH query for pathfinding
-        vector<Intersection> path = CHQuery(starting.id, ending.id);
+        // Use CH query for pathfinding with reservation updates
+        vector<Intersection> path = CHQuery(vehicleId, starting.id, ending.id, localUpdates);
         
         if (!path.empty()) {
             paths[vehicleId] = path;
@@ -752,6 +943,18 @@ void CHPathfinding() {
                 cout << "Vehicle " << vehicleId << ": No path found or validation failed!" << endl;
             }
         }
+        
+        // Apply updates if we've accumulated enough
+        if (localUpdates.size() >= BATCH_UPDATE_SIZE) {
+            applyReservationUpdates(localUpdates);
+            localUpdates.clear();
+        }
+    }
+    
+    // Apply any remaining updates
+    if (!localUpdates.empty()) {
+        applyReservationUpdates(localUpdates);
+        localUpdates.clear();
     }
     
     // Stop timing and calculate duration
@@ -775,26 +978,12 @@ void CHPathfinding() {
     cout << "---" << endl;
     
     for (auto& [id, path] : paths) {
-        
-        
         cout << id << " ";
         for (auto& intersection : path) {
             cout << intersection.id << " ";
         }
         cout << endl;
     }
-    
-    // Add debug info about path lengths
-    int totalNodeCount = 0;
-    for (const auto& [_, path] : paths) {
-        totalNodeCount += path.size();
-    }
-    float avgPathLength = paths.empty() ? 0 : float(totalNodeCount) / paths.size();
-    //cout << "Average path length: " << avgPathLength << " nodes" << endl;
-    
-    // if (paths.size() > pathsToShow) {
-    //     cout << "... and " << (paths.size() - pathsToShow) << " more paths (not shown)" << endl;
-    // }
 }
 
 int main() {
@@ -802,6 +991,18 @@ int main() {
     auto totalStartTime = chrono::high_resolution_clock::now();
     
     readData();
+    
+    // Initialize the reservation tables for each road
+    LazySeg<Node, Lazy, 1 << 15> tree;
+    tree.init({0, 0}, {0, true});
+    for (int i = 0; i < 1 << 15; i++) {
+        tree[i] = {0, 0};
+    }
+    tree.build();
+    
+    for (auto& [id, road] : roads) {
+        reservationTable[id] = tree;
+    }
     
     // Try to load CH data from file first
     bool chDataLoaded = loadCHDataFromFile();
@@ -812,13 +1013,8 @@ int main() {
         preprocessCH(true); // true = save to file
     }
     
-    // Run CH pathfinding
+    // Run CH pathfinding with reservation table
     CHPathfinding();
-    
-    // // Print total execution time
-    // auto totalEndTime = chrono::high_resolution_clock::now();
-    // auto totalDuration = chrono::duration_cast<chrono::milliseconds>(totalEndTime - totalStartTime);
-    // cout << "Total execution time (including " << (chDataLoaded ? "loading" : "preprocessing") << "): " << totalDuration.count() << " ms" << endl;
     
     return 0;
 }

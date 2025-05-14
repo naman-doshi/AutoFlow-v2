@@ -152,6 +152,9 @@ class AllRoads:
 
 
 async def handleNew(websocket: WebSocketServerProtocol, selectedIndex, vehicleDensity, autoflow_percentage, mapSize, receiveNewDests, roadBlockage):
+    
+    assert False, "This function is not intended for use with Metropolis (Visual) anymore."
+    
     cities = ["sydney", "melbourne", "manhattan", "los_angeles", "london", "tokyo"]
     
     # convert map size to length: we set max size to 3k * 3k metres

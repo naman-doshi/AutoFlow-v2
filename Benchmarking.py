@@ -11,9 +11,12 @@ landscape = Landscape(1000,
                       1000,
                       gridSparseness=0.4,
                       gridCoverage=0.6)
-landscape.generate()
+#landscape.generate()
 #landscape.store("NewVersion/benchmark.txt")
 landscape.load("NewVersion/benchmark.txt")
+
+landscape.show()
+plt.show()
 
 print("Landscape loaded")
 
@@ -22,9 +25,9 @@ allEndingPositions = []
 autoFlowVehicles = []
 
 for road in landscape.roads:
-    blah = [[road] + i for i in road.availablePositions()]
-    allStartingPositions += blah
-    allEndingPositions += blah
+    positionObject = [[road] + i for i in road.availablePositions()]
+    allStartingPositions += positionObject
+    allEndingPositions += positionObject
 
 # start timer
 start = time.time()
@@ -94,7 +97,7 @@ with open("simulation_data.json", "w") as f:
 
 print(f"Saved simulation data for {len(autoFlowVehicles)} vehicles to simulation_data.json")
 
-subprocess.run(["TrafficSimulatorV2"])
+subprocess.run(["/Users/namandoshi/Desktop/AutoFlow-v2/TrafficSimulatorV2"])
 
 # delete vehicle_road_speeds.csv
 os.remove("vehicle_road_speeds.csv")
@@ -114,4 +117,3 @@ os.remove("vehicle_road_speeds.csv")
 #         plt.plot([route[i][0], route[i+1][0]], [route[i][1], route[i+1][1]], 'b')
 
 
-# plt.show()

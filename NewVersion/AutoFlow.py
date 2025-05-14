@@ -68,6 +68,7 @@ class Node:
 # ===============================================================================================
 
 
+
 def computeRoutes(selfish_vehicles: list[Vehicle], autoflow_vehicles: list[Vehicle], landscape: Landscape):
     """
     Computes the routes for selfish vehicles first, then AutoFlow vehicles.
@@ -241,6 +242,11 @@ def computeAutoflowVehicleRoutes(autoflow_vehicles: list[Vehicle], landscape: La
         
 
         actual_output = stdout.split("\n")
+        #print(actual_output)
+        # if '---' not in actual_output:
+        #     print(stdout)
+        #     routes = {}
+        #     break
         # print(actual_output)
         ind = actual_output.index("---")
         actual_output = actual_output[ind+1:]
